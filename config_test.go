@@ -75,3 +75,25 @@ func TestUpdateProfileRejectsInvalidSlotWithoutWriting(t *testing.T) {
 		t.Fatalf("profile changed after invalid slot: %q", updated)
 	}
 }
+
+func TestUpdateProfilePreservesMixedLineEndingsOutsideSlot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "greeter.conf")
+	original := "name=demo\r\n# keep LF\nansi_style=false\r\nascii_1=\"\"\"\r\nold\r\n\"\"\"\r\ncolor=green\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UpdateProfile(path, "ascii_1", "\x1b[0;31mnew\x1b[0m"); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updated), "name=demo\r\n# keep LF\nansi_style=true\r\n") {
+		t.Fatalf("unrelated line endings changed: %q", updated)
+	}
+	if !strings.HasSuffix(string(updated), "color=green\n") {
+		t.Fatalf("trailing LF line ending changed: %q", updated)
+	}
+}

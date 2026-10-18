@@ -89,12 +89,77 @@ func slotLines(slot, art string) []string {
 	return append(result, `"""`)
 }
 
-func replaceProfile(profile, slot, art string) (string, error) {
-	lineEnding := "\n"
-	if strings.Contains(profile, "\r\n") {
-		lineEnding = "\r\n"
+type profileLine struct {
+	text   string
+	ending string
+}
+
+func splitProfileLines(profile string) []profileLine {
+	lines := make([]profileLine, 0, strings.Count(profile, "\n")+1)
+	for {
+		newline := strings.IndexByte(profile, '\n')
+		if newline < 0 {
+			return append(lines, profileLine{text: profile})
+		}
+		text, ending := profile[:newline], "\n"
+		if strings.HasSuffix(text, "\r") {
+			text, ending = strings.TrimSuffix(text, "\r"), "\r\n"
+		}
+		lines = append(lines, profileLine{text: text, ending: ending})
+		profile = profile[newline+1:]
 	}
-	lines := strings.Split(strings.ReplaceAll(profile, "\r\n", "\n"), "\n")
+}
+
+func profileTextLines(lines []profileLine) []string {
+	text := make([]string, len(lines))
+	for i := range lines {
+		text[i] = lines[i].text
+	}
+	return text
+}
+
+func joinProfileLines(lines []profileLine) string {
+	var result strings.Builder
+	for _, line := range lines {
+		result.WriteString(line.text)
+		result.WriteString(line.ending)
+	}
+	return result.String()
+}
+
+func spliceProfileLines(lines []profileLine, start, end int, replacement []profileLine) []profileLine {
+	result := make([]profileLine, 0, len(lines)-(end-start)+len(replacement))
+	result = append(result, lines[:start]...)
+	result = append(result, replacement...)
+	return append(result, lines[end:]...)
+}
+
+func profileLineEnding(lines []profileLine, index int) string {
+	if index > 0 && lines[index-1].ending != "" {
+		return lines[index-1].ending
+	}
+	if index >= 0 && index < len(lines) && lines[index].ending != "" {
+		return lines[index].ending
+	}
+	for _, line := range lines {
+		if line.ending != "" {
+			return line.ending
+		}
+	}
+	return "\n"
+}
+
+func newProfileLines(text []string, ending string) []profileLine {
+	lines := make([]profileLine, len(text))
+	for i := range text {
+		lines[i] = profileLine{text: text[i], ending: ending}
+	}
+	return lines
+}
+
+func replaceProfile(profile, slot, art string) (string, error) {
+	profileLines := splitProfileLines(profile)
+	lines := profileTextLines(profileLines)
 
 	start, end := -1, -1
 	for i := 0; i < len(lines); {
@@ -121,14 +186,26 @@ func replaceProfile(profile, slot, art string) (string, error) {
 
 	block := slotLines(slot, art)
 	if start >= 0 {
-		lines = append(lines[:start], append(block, lines[end:]...)...)
+		ending := profileLineEnding(profileLines, start)
+		replacement := newProfileLines(block, ending)
+		replacement[len(replacement)-1].ending = profileLines[end-1].ending
+		profileLines = spliceProfileLines(profileLines, start, end, replacement)
 	} else {
 		insert := len(lines)
 		if insert > 0 && lines[insert-1] == "" {
 			insert--
 		}
-		lines = append(lines[:insert], append(block, lines[insert:]...)...)
+		ending := profileLineEnding(profileLines, insert)
+		replacement := newProfileLines(block, ending)
+		if insert == len(profileLines) {
+			if len(profileLines) > 0 {
+				profileLines[len(profileLines)-1].ending = ending
+			}
+			replacement[len(replacement)-1].ending = ""
+		}
+		profileLines = spliceProfileLines(profileLines, insert, insert, replacement)
 	}
+	lines = profileTextLines(profileLines)
 
 	styleFound := false
 	firstSlot := -1
@@ -141,6 +218,7 @@ func replaceProfile(profile, slot, art string) (string, error) {
 		if key == "ansi_style" {
 			indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
 			lines[i] = indent + "ansi_style=true"
+			profileLines[i].text = lines[i]
 			styleFound = true
 			i++
 			continue
@@ -162,17 +240,11 @@ func replaceProfile(profile, slot, art string) (string, error) {
 				insert--
 			}
 		}
-		lines = append(lines[:insert], append([]string{"ansi_style=true"}, lines[insert:]...)...)
+		ending := profileLineEnding(profileLines, insert)
+		profileLines = spliceProfileLines(profileLines, insert, insert, []profileLine{{text: "ansi_style=true", ending: ending}})
 	}
 
-	return replaceLineEnding(strings.Join(lines, "\n"), lineEnding), nil
-}
-
-func replaceLineEnding(value, ending string) string {
-	if ending == "\n" {
-		return value
-	}
-	return strings.ReplaceAll(value, "\n", ending)
+	return joinProfileLines(profileLines), nil
 }
 
 func configAssignment(line string) (key, value string, ok bool) {
