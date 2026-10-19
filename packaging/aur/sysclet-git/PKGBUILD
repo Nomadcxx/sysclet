@@ -9,6 +9,7 @@ license=('GPL-3.0-only')
 makedepends=('git' 'go')
 provides=('sysclet')
 conflicts=('sysclet')
+options=('!debug')
 source=('sysclet::git+https://github.com/Nomadcxx/sysclet.git')
 sha256sums=('SKIP')
 
