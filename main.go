@@ -15,11 +15,16 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+	if len(args) == 0 {
+		return runTUI()
+	}
+	if args[0] == "--help" || args[0] == "-h" {
 		printUsage(stdout)
 		return 0
 	}
 	switch args[0] {
+	case "tui":
+		return runTUI()
 	case "render":
 		return runRender(args[1:], stdout, stderr)
 	case "export":
@@ -34,10 +39,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 func runRender(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("render", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	fontPath := flags.String("font", "", "path to a TheDraw TDF font file")
-	fontName := flags.String("font-name", "", "font name when the file contains multiple fonts")
+	fontPath := flags.String("font", "", "path to a local TheDraw TDF font file")
+	fontName := flags.String("font-name", "", "font name in the file, or bundled font when --font is omitted")
 	flags.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: sysclet render --font FONT.tdf [--font-name NAME] TEXT")
+		fmt.Fprintln(stderr, "Usage: sysclet render (--font FONT.tdf [--font-name NAME] | --font-name BUNDLED_FONT) TEXT")
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(args); err != nil {
@@ -46,8 +51,8 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 		}
 		return 2
 	}
-	if *fontPath == "" {
-		fmt.Fprintln(stderr, "render requires --font")
+	if *fontPath == "" && *fontName == "" {
+		fmt.Fprintln(stderr, "render requires --font or --font-name")
 		return 2
 	}
 	text, err := commandText(flags.Args())
@@ -75,12 +80,12 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 func runExport(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("export", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	fontPath := flags.String("font", "", "path to a TheDraw TDF font file")
-	fontName := flags.String("font-name", "", "font name when the file contains multiple fonts")
+	fontPath := flags.String("font", "", "path to a local TheDraw TDF font file")
+	fontName := flags.String("font-name", "", "font name in the file, or bundled font when --font is omitted")
 	slot := flags.String("slot", "", "sysc-greet ASCII slot, such as ascii_1")
 	configPath := flags.String("config", "", "update this profile and save a backup")
 	flags.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: sysclet export --font FONT.tdf --slot ascii_N [--font-name NAME] [--config PROFILE] TEXT")
+		fmt.Fprintln(stderr, "Usage: sysclet export (--font FONT.tdf [--font-name NAME] | --font-name BUNDLED_FONT) --slot ascii_N [--config PROFILE] TEXT")
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(args); err != nil {
@@ -89,8 +94,8 @@ func runExport(args []string, stdout, stderr io.Writer) int {
 		}
 		return 2
 	}
-	if *fontPath == "" {
-		fmt.Fprintln(stderr, "export requires --font")
+	if *fontPath == "" && *fontName == "" {
+		fmt.Fprintln(stderr, "export requires --font or --font-name")
 		return 2
 	}
 	text, err := commandText(flags.Args())
@@ -137,31 +142,15 @@ func commandText(args []string) (string, error) {
 }
 
 func loadFont(path, name string) (Font, error) {
-	file, err := os.Open(path)
+	if path == "" {
+		if name == "" {
+			return Font{}, fmt.Errorf("font path or bundled font name is required")
+		}
+		return loadBundledFontByName(name)
+	}
+	fonts, err := loadFonts(path)
 	if err != nil {
-		return Font{}, fmt.Errorf("inspect font %q: %w", path, err)
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return Font{}, fmt.Errorf("inspect font %q: %w", path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return Font{}, fmt.Errorf("font %q is not a regular file", path)
-	}
-	if info.Size() > maxTDFBytes {
-		return Font{}, fmt.Errorf("font %q exceeds the %d MiB size limit", path, maxTDFBytes>>20)
-	}
-	data, err := io.ReadAll(io.LimitReader(file, maxTDFBytes+1))
-	if err != nil {
-		return Font{}, fmt.Errorf("read font %q: %w", path, err)
-	}
-	if len(data) > maxTDFBytes {
-		return Font{}, fmt.Errorf("font %q exceeds the %d MiB size limit", path, maxTDFBytes>>20)
-	}
-	fonts, err := ParseTDF(data)
-	if err != nil {
-		return Font{}, fmt.Errorf("parse font %q: %w", path, err)
+		return Font{}, err
 	}
 	if name == "" {
 		return fonts[0], nil
@@ -178,14 +167,47 @@ func loadFont(path, name string) (Font, error) {
 	return Font{}, fmt.Errorf("font %q not found; available fonts: %s", name, strings.Join(names, ", "))
 }
 
+func loadFonts(path string) ([]Font, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("inspect font %q: %w", path, err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("inspect font %q: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("font %q is not a regular file", path)
+	}
+	if info.Size() > maxTDFBytes {
+		return nil, fmt.Errorf("font %q exceeds the %d MiB size limit", path, maxTDFBytes>>20)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxTDFBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read font %q: %w", path, err)
+	}
+	if len(data) > maxTDFBytes {
+		return nil, fmt.Errorf("font %q exceeds the %d MiB size limit", path, maxTDFBytes>>20)
+	}
+	fonts, err := ParseTDF(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse font %q: %w", path, err)
+	}
+	return fonts, nil
+}
+
 func printUsage(output io.Writer) {
 	fmt.Fprintln(output, "sysclet renders TheDraw TDF fonts as ANSI art and exports sysc-greet profile slots.")
 	fmt.Fprintln(output, "")
 	fmt.Fprintln(output, "Commands:")
+	fmt.Fprintln(output, "  tui     Open the interactive ANSI header editor")
 	fmt.Fprintln(output, "  render  Print ANSI art to the terminal")
 	fmt.Fprintln(output, "  export  Print a sysc-greet profile snippet or update a profile")
 	fmt.Fprintln(output, "")
 	fmt.Fprintln(output, "Examples:")
+	fmt.Fprintln(output, "  sysclet")
+	fmt.Fprintln(output, "  sysclet render --font-name Bleach SYSC")
 	fmt.Fprintln(output, "  sysclet render --font tdf-bleach.tdf SYSC")
 	fmt.Fprintln(output, "  sysclet export --font tdf-bleach.tdf --slot ascii_1 SYSC")
 }

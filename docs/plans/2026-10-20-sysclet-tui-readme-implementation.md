@@ -4,13 +4,13 @@
 
 **Goal:** Add an interactive TDF header editor with sysc-greet export and present it through a BIT-inspired README and showcase.
 
-**Architecture:** Keep the app in the existing root `main` package. Reuse `Font.Render`, `ProfileSnippet`, and `UpdateProfile`; use Bubble Tea for terminal ownership, Bubbles for text/file inputs, and Lip Gloss for layout. Keep TDF SGR output unchanged.
+**Architecture:** Keep the app in the existing root `main` package. Reuse the TDF parser and config writer; use Bubble Tea for terminal ownership, Bubbles for text/file inputs, and Lip Gloss for layout. Preserve source TDF colors by default; apply optional ANSI palette overrides during cell rendering.
 
-**Tech Stack:** Go 1.20, Bubble Tea v1, Bubbles, Lip Gloss, existing TDF parser and config writer.
+**Tech Stack:** Go 1.20, Bubble Tea v1.2.4, Bubbles v0.20.0, Lip Gloss v1.0.0, existing TDF parser and config writer.
 
 ---
 
-### Task 1: CLI entry and font discovery
+### Task 1: CLI entry and font catalog
 
 **Files:**
 - Modify: `main.go`
@@ -19,22 +19,22 @@
 - Modify: `go.mod`, `go.sum`
 
 **Steps:**
-1. Add tests that `tui` is accepted and that font discovery honors an absolute `XDG_DATA_HOME`, falling back to `~/.local/share/sysclet/fonts`.
+1. Add tests that `tui` is accepted, the bundled TDF catalog returns all 3,481 records, and local font discovery honors `XDG_DATA_HOME` with the usual fallback.
 2. Run the focused tests and confirm they fail because dispatch and discovery are missing.
-3. Add Bubble Tea, Bubbles, and Lip Gloss at the versions used by BIT; make no arguments and `tui` launch the app while preserving help, `render`, and `export`.
-4. Add the minimal data-directory helper and font loader that returns all named fonts from one TDF file.
+3. Add Bubble Tea, Bubbles, and Lip Gloss at Go 1.20-compatible versions. BIT's current Bubble Tea and Bubbles releases require Go 1.23, so keep sysclet's existing Go 1.20 minimum.
+4. Bundle the 36 TAAG TDF packs, index each named record, and load its pack on demand. Keep the font data separate from the GPL-licensed code and document the upstream collection description and missing per-record license metadata.
 5. Run focused tests and `go test ./...`.
 
-### Task 2: Live preview and keyboard navigation
+### Task 2: Live preview, alignment, and palette controls
 
 **Files:**
 - Create: `tui.go`
 - Create: `tui_test.go`
 
 **Steps:**
-1. Add a test that changing text updates the ANSI preview immediately and retains TDF SGR codes.
+1. Add tests for immediate rerender, left/center/right alignment, native TDF colors, and foreground/background ANSI overrides.
 2. Run the test and confirm it fails because the TUI model is missing.
-3. Implement the Text, TDF Font, and Export control strip, BIT-like preview frame, and keyboard guide. Keep the TDF renderer's colors and spacing authoritative.
+3. Implement Text, TDF Font, Align, Color, and Export controls, a BIT-like preview frame, and a keyboard guide. Keep TDF cell colors as the default; make overrides explicit.
 4. Run the focused test and `go test ./...`.
 
 ### Task 3: TDF file and named-font selection
@@ -70,7 +70,7 @@
 **Steps:**
 1. Record the TUI at testbench resolution while generating `SYSC`, `SEE`, `YOU`, `IN`, `SPACE`, and `COWBOY`, then export one result to a sysc-greet profile.
 2. Convert the capture to a compact animated WebP while preserving the readable terminal text and color.
-3. Rework README hierarchy to match BIT's wordmark, badges, anchor links, full-width showcase, and concise install/feature/usage sections. Keep sysclet's smaller feature set and TDF license details accurate.
+3. Rework README hierarchy to match BIT's wordmark, badges, anchor links, full-width showcase, and concise install/feature/usage sections. Document the bundled catalog and link its third-party notice.
 4. Apply the stop-slop review to the README and PR text.
 
 ### Task 6: Package and release checks
