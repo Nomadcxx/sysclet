@@ -25,6 +25,25 @@ func TestParseTDFAndRenderPreservesGlyphColors(t *testing.T) {
 	}
 }
 
+func TestParseTDFAcceptsGlyphBoundEndingAfterZeroColorAttribute(t *testing.T) {
+	data := testTDF()
+	const glyphOffset = tdfHeaderSize + tdfRecordSize
+	// The final cell's color is 00, which is valid data. The bounded glyph
+	// record ends there without a separate NUL character.
+	data = data[:glyphOffset+7]
+	binary.LittleEndian.PutUint16(data[tdfHeaderSize+23:tdfHeaderSize+25], 7)
+	data[glyphOffset+6] = 0
+
+	fonts, err := ParseTDF(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := fonts[0].Glyphs[int('A'-33)]
+	if len(rows) != 2 || len(rows[1]) != 1 || rows[1][0] != (Cell{Rune: '│', Color: 0}) {
+		t.Fatalf("glyph rows = %#v, want final cell │ with color 0", rows)
+	}
+}
+
 func TestParseTDFRejectsGlyphOffsetOutsideBlock(t *testing.T) {
 	data := testTDF()
 	const recordStart, glyphIndex = 20, int('A' - 33)
@@ -34,6 +53,30 @@ func TestParseTDFRejectsGlyphOffsetOutsideBlock(t *testing.T) {
 	_, err := ParseTDF(data)
 	if err == nil || !strings.Contains(err.Error(), "glyph") {
 		t.Fatalf("ParseTDF error = %v, want malformed glyph error", err)
+	}
+}
+
+func TestParseTDFAcceptsExtendedUpstreamFontName(t *testing.T) {
+	data := testTDF()
+	name := "FinalDestiny2"
+	data[tdfHeaderSize+4] = byte(len(name))
+	copy(data[tdfHeaderSize+5:], name)
+
+	fonts, err := ParseTDF(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fonts) != 1 || fonts[0].Name != name {
+		t.Fatalf("parsed font name = %#v, want %q", fonts, name)
+	}
+}
+
+func TestParseTDFRejectsNameBeyondHeaderSlot(t *testing.T) {
+	data := testTDF()
+	data[tdfHeaderSize+4] = 17
+
+	if _, err := ParseTDF(data); err == nil || !strings.Contains(err.Error(), "font name length") {
+		t.Fatalf("ParseTDF error = %v, want overlong font name error", err)
 	}
 }
 

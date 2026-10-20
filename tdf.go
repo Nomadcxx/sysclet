@@ -47,7 +47,9 @@ func ParseTDF(data []byte) ([]Font, error) {
 		}
 
 		nameLen := int(data[offset+4])
-		if nameLen > 12 {
+		// The format guide says 12; TAAG's FinalDestiny2 record uses 13
+		// bytes in the 16-byte name slot before the type field.
+		if nameLen > 16 {
 			return nil, fmt.Errorf("invalid font name length %d at byte %d", nameLen, offset+4)
 		}
 		name := strings.TrimRight(string(data[offset+5:offset+5+nameLen]), "\x00")
@@ -144,7 +146,12 @@ func parseGlyph(data []byte, fontType byte) ([][]Cell, error) {
 		}
 		row = append(row, Cell{Rune: cp437Rune(char), Color: color})
 	}
-	return nil, fmt.Errorf("glyph has no terminator")
+	// Glyph offsets bound the data, and some bundled records end at that
+	// boundary without a separate NUL character after the final color byte.
+	if len(row) > 0 {
+		rows = append(rows, row)
+	}
+	return rows, nil
 }
 
 var outlineCharacters = map[byte]byte{
@@ -155,8 +162,19 @@ var outlineCharacters = map[byte]byte{
 }
 
 func (font Font) Render(text string) (string, error) {
+	return font.RenderWithColors(text, -1, -1)
+}
+
+// RenderWithColors applies optional ANSI palette overrides while retaining TDF colors by default.
+func (font Font) RenderWithColors(text string, foregroundOverride, backgroundOverride int) (string, error) {
 	if text == "" {
 		return "", fmt.Errorf("text must not be empty")
+	}
+	if foregroundOverride < -1 || foregroundOverride > 15 {
+		return "", fmt.Errorf("foreground color must be -1 (TDF) or between 0 and 15")
+	}
+	if backgroundOverride < -1 || backgroundOverride > 15 {
+		return "", fmt.Errorf("background color must be -1 (TDF) or between 0 and 15")
 	}
 
 	type token struct {
@@ -217,7 +235,7 @@ func (font Font) Render(text string) (string, error) {
 			}
 			cells = appendDefaultSpaces(cells, width-rowWidth)
 		}
-		writeANSIline(&output, cells)
+		writeANSIline(&output, cells, foregroundOverride, backgroundOverride)
 		if line+1 < height {
 			output.WriteByte('\n')
 		}
@@ -232,13 +250,14 @@ func appendDefaultSpaces(cells []Cell, count int) []Cell {
 	return cells
 }
 
-func writeANSIline(output *strings.Builder, cells []Cell) {
-	var previous byte
+func writeANSIline(output *strings.Builder, cells []Cell, foregroundOverride, backgroundOverride int) {
+	previousForeground, previousBackground := 0, 0
 	haveColor := false
 	for _, cell := range cells {
-		if !haveColor || cell.Color != previous {
-			output.WriteString(colorSGR(cell.Color))
-			previous = cell.Color
+		foreground, background := ansiColors(cell.Color, foregroundOverride, backgroundOverride)
+		if !haveColor || foreground != previousForeground || background != previousBackground {
+			writeColorSGR(output, foreground, background)
+			previousForeground, previousBackground = foreground, background
 			haveColor = true
 		}
 		output.WriteRune(cell.Rune)
@@ -247,15 +266,45 @@ func writeANSIline(output *strings.Builder, cells []Cell) {
 }
 
 func colorSGR(attribute byte) string {
+	foreground, background := ansiColors(attribute, -1, -1)
+	var output strings.Builder
+	writeColorSGR(&output, foreground, background)
+	return output.String()
+}
+
+func ansiColors(attribute byte, foregroundOverride, backgroundOverride int) (int, int) {
 	ansiOrder := [...]int{0, 4, 2, 6, 1, 5, 3, 7}
 	foreground := int(attribute & 0x0f)
-	background := int(attribute>>4) & 0x07
-	foregroundCode := 30 + ansiOrder[foreground&0x07]
+	foregroundCode := ansiOrder[foreground&0x07]
 	if foreground >= 8 {
-		foregroundCode += 60
+		foregroundCode += 8
 	}
-	if background == 0 {
-		return fmt.Sprintf("\x1b[0;%dm", foregroundCode)
+	if foregroundOverride >= 0 {
+		foregroundCode = foregroundOverride
 	}
-	return fmt.Sprintf("\x1b[0;%d;%dm", foregroundCode, 40+ansiOrder[background])
+
+	background := -1
+	if value := int(attribute>>4) & 0x07; value != 0 {
+		background = ansiOrder[value]
+	}
+	if backgroundOverride >= 0 {
+		background = backgroundOverride
+	}
+	return foregroundCode, background
+}
+
+func writeColorSGR(output *strings.Builder, foreground, background int) {
+	foregroundCode := 30 + (foreground & 7)
+	if foreground >= 8 {
+		foregroundCode = 90 + foreground - 8
+	}
+	if background < 0 {
+		fmt.Fprintf(output, "\x1b[0;%dm", foregroundCode)
+		return
+	}
+	backgroundCode := 40 + background
+	if background >= 8 {
+		backgroundCode = 100 + background - 8
+	}
+	fmt.Fprintf(output, "\x1b[0;%d;%dm", foregroundCode, backgroundCode)
 }
