@@ -21,10 +21,43 @@ func TestProfileSnippetEscapesANSIForSyscGreet(t *testing.T) {
 	}
 }
 
+func TestUpdateProfileCreatesMissingProfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "new-profile.conf")
+	backupPath, err := UpdateProfile(path, "ascii_2", "\x1b[0;31mnew\x1b[0m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backupPath != "" {
+		t.Fatalf("new profile backup = %q, want none", backupPath)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := ProfileSnippet("ascii_2", "\x1b[0;31mnew\x1b[0m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("new profile = %q, want %q", got, want)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o200 == 0 || info.Mode().Perm()&0o022 != 0 {
+		t.Fatalf("new profile mode = %04o, want owner writable and not group/world writable", info.Mode().Perm())
+	}
+}
+
 func TestUpdateProfileReplacesOnlySelectedSlotAndCreatesBackup(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "greeter.conf")
 	original := "name=demo\nansi_style=false\nascii_1=\"\"\"\nold\n\"\"\"\nascii_2=\"\"\"\nkeep=art\n\"\"\"\ncolor=green\n"
 	if err := os.WriteFile(path, []byte(original), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	originalInfo, err := os.Stat(path)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -55,6 +88,13 @@ func TestUpdateProfileReplacesOnlySelectedSlotAndCreatesBackup(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("updated profile does not contain %q:\n%s", want, got)
 		}
+	}
+	updatedInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedInfo.Mode().Perm() != originalInfo.Mode().Perm() {
+		t.Fatalf("updated profile mode = %04o, want original mode %04o", updatedInfo.Mode().Perm(), originalInfo.Mode().Perm())
 	}
 }
 

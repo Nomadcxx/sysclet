@@ -32,6 +32,16 @@ func UpdateProfile(path, slot, art string) (string, error) {
 
 	linkInfo, err := os.Lstat(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			snippet, snippetErr := ProfileSnippet(slot, art)
+			if snippetErr != nil {
+				return "", snippetErr
+			}
+			if createErr := createProfileFile(path, []byte(snippet)); createErr != nil {
+				return "", fmt.Errorf("create profile %q: %w", path, createErr)
+			}
+			return "", nil
+		}
 		return "", fmt.Errorf("inspect profile %q: %w", path, err)
 	}
 	if linkInfo.Mode()&os.ModeSymlink != 0 {
@@ -57,6 +67,23 @@ func UpdateProfile(path, slot, art string) (string, error) {
 		return backupPath, fmt.Errorf("write profile %q (original saved at %s): %w", path, backupPath, err)
 	}
 	return backupPath, nil
+}
+
+func createProfileFile(path string, contents []byte) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.Write(contents)
+	if writeErr == nil {
+		writeErr = file.Sync()
+	}
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = os.Remove(path)
+		return errors.Join(writeErr, closeErr)
+	}
+	return nil
 }
 
 func validateSlot(slot string) error {

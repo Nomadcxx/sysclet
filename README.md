@@ -23,10 +23,10 @@
 | **ANSI header editor** | Edit text in a full-screen terminal UI and see the TheDraw output update as you type. |
 | **3,481 bundled font records** | Search and preview the bundled catalog without a network connection. Load other `.tdf` files from disk. |
 | **Authored color and alignment** | Keep each TDF cell's foreground and background by default. Choose left, center, or right alignment, or override either ANSI color. |
-| **sysc-greet export** | Preview a profile slot, then update it with a backup of the original file. |
+| **sysc-greet export** | Preview a profile slot, create a new profile, or update an existing one with a backup. |
 | **Command line** | Render a header or print an escaped sysc-greet profile snippet without opening the TUI. |
 
-The program embeds its font data and has no runtime package dependencies.
+The program embeds its font data. Clipboard copying uses the system clipboard utility when available; other features work without one.
 
 ## Quick Start
 
@@ -36,7 +36,7 @@ Install for your user on Linux distributions with Go and POSIX `sh`:
 curl -fsSL https://raw.githubusercontent.com/Nomadcxx/sysclet/main/install.sh | sh
 ```
 
-The TUI installs sysclet to `~/.local/bin`. It needs Go 1.20+ and network access. It does not use `sudo` or a distro package manager. If `~/.local/bin` is not on your `PATH`, run `~/.local/bin/sysclet`.
+The installer shows the binary destination and streams Go's build output. It installs sysclet to `~/.local/bin/sysclet`; the TDF fonts are bundled in the binary. It needs Go 1.20+ and network access, and does not use `sudo` or a distro package manager. If `~/.local/bin` is not on your `PATH`, run `~/.local/bin/sysclet`.
 
 You can install directly with Go instead:
 
@@ -55,21 +55,24 @@ Run `sysclet` to open the editor.
 
 ## TUI
 
-The screen has a large ANSI preview, a control strip, and keyboard hints. The initial font is **Bleach**; the font control opens the bundled catalog.
+The screen has a large ANSI preview, a control strip, and keyboard hints. The active control is named above the strip and highlighted. The initial font is **Bleach**. The full font name appears above the controls; select **TDF FONT** and use `↑` / `↓` to cycle fonts. Press `Enter` on **TDF FONT** to search the bundled catalog or browse a local `.tdf` file.
 
 | Key | Action |
 | --- | --- |
+| `Tab` / `Shift+Tab` | Move forward/backward through the controls |
 | `←` / `→` | Move between text, font, alignment, colors, and export controls |
-| `↑` / `↓` | Change the selected setting |
+| `↑` / `↓` | Change the selected setting; cycle fonts when **TDF FONT** is selected |
 | `Enter` | Edit text or open the selected control |
 | `Ctrl+O` in the font list | Browse for a local `.tdf` file |
-| `e` | Open sysc-greet export |
-| `Ctrl+O` in export | Browse for a sysc-greet profile |
-| `Ctrl+S` in export | Update the selected profile slot and save a backup |
+| `e` | Open export options, starting with sysc-greet |
+| `Ctrl+O` / `Ctrl+B` in export | Browse for a file matching the selected export format |
+| `Ctrl+S` in export | Save the selected format; existing files get a backup |
 | `Esc` | Close the active editor or picker |
 | `q` | Quit |
 
 The `FG` and `BG` controls cycle through the 16-color ANSI palette and **TDF**, which restores the font's stored color for each cell. Alignment changes only the position of the rendered header.
+
+In sysc-greet export, `F5` copies the plain profile snippet without the surrounding TUI. On Linux, install `wl-clipboard` for Wayland or `xclip` or `xsel` for X11. These are optional dependencies for `sysclet-git`.
 
 To load local fonts, place them in `~/.local/share/sysclet/fonts` (or `$XDG_DATA_HOME/sysclet/fonts`) and choose **TDF FONT → Ctrl+O**. A file with multiple records opens a searchable font-name list.
 
@@ -97,9 +100,17 @@ Run `sysclet --help`, `sysclet render --help`, or `sysclet export --help` for op
 
 ## sysc-greet Export
 
-The TUI previews the selected `ascii_N` slot with its ANSI colors and writes escaped codes to the profile. Set a profile path and slot, then press `Ctrl+S` to update the profile. sysclet saves a timestamped backup before replacing the slot and enabling ANSI rendering.
+The TUI starts with the sysc-greet format. Its snippet preview shows the selected `ascii_N` slot with ANSI colors. `Ctrl+S` updates an existing profile and saves a timestamped backup, or creates a new profile containing the ANSI setting and selected slot. `Ctrl+O` and `Ctrl+B` open the file picker from any export field; they browse existing files, while new paths can be typed directly.
 
-The CLI can update a profile directly:
+The other export formats match BIT: **TXT**, **GO**, **JS**, **PY**, **RS**, and **SH**. Select a format in the export view, enter an output path, and press `Ctrl+S`. sysclet adds the format extension when needed and backs up an existing file before replacing it.
+
+sysclet does not request elevated privileges. User-owned profile paths can be saved normally; root-owned system paths require running sysclet with `sudo`. Existing file modes are preserved when updated, and a new profile is created for the invoking user with mode `0644` limited by the system umask. Run the TUI as root only when editing a system-owned profile:
+
+```sh
+sudo "$(command -v sysclet)"
+```
+
+Run this command to update a system profile as root:
 
 ```sh
 sudo "$(command -v sysclet)" export --font-name Bleach --slot ascii_1 \

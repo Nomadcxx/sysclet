@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,9 +39,23 @@ var (
 	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#f16c75"))
 )
 
-type installResultMsg struct {
+type installStartedMsg struct {
+	stream *installStream
 	err    error
-	output string
+}
+
+type installOutputMsg struct {
+	line string
+}
+
+type installDoneMsg struct {
+	err error
+}
+
+type installStream struct {
+	pipe   *io.PipeReader
+	reader *bufio.Reader
+	done   <-chan error
 }
 
 type model struct {
@@ -51,6 +67,7 @@ type model struct {
 	done       bool
 	err        error
 	output     string
+	stream     *installStream
 	width      int
 	height     int
 }
@@ -113,6 +130,9 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			if m.installing {
 				m.cancel()
+				if m.stream != nil {
+					_ = m.stream.pipe.Close()
+				}
 			}
 			return m, tea.Quit
 		case "q", "esc":
@@ -127,6 +147,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			m.installing = true
+			m.output = ""
 			return m, tea.Batch(m.spinner.Tick, installCmd(m.ctx, m.installDir))
 		}
 	case spinner.TickMsg:
@@ -135,31 +156,58 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
 		}
-	case installResultMsg:
+	case installStartedMsg:
+		if msg.err != nil {
+			m.installing = false
+			m.done = true
+			m.err = msg.err
+			return m, nil
+		}
+		m.stream = msg.stream
+		return m, readInstallOutputCmd(m.stream)
+	case installOutputMsg:
+		if msg.line != "" {
+			m.output = appendInstallOutput(m.output, ansi.Strip(msg.line))
+		}
+		return m, readInstallOutputCmd(m.stream)
+	case installDoneMsg:
 		m.installing = false
 		m.done = true
 		m.err = msg.err
-		m.output = strings.TrimSpace(ansi.Strip(msg.output))
-		m.output = truncateRunes(m.output, 360)
+		if m.stream != nil {
+			_ = m.stream.pipe.Close()
+		}
+		if msg.err == nil {
+			m.output = appendInstallOutput(m.output, "Installed executable: "+filepath.Join(m.installDir, "sysclet"))
+		}
 	}
 	return m, nil
 }
 
 func (m model) View() string {
+	installPath := filepath.Join(m.installDir, "sysclet")
 	content := []string{
 		headerStyle.Render(strings.Join(asciiHeaderLines, "\n")),
 		titleStyle.Render("SYSCLET INSTALLER"),
 		mutedStyle.Render("Install or update sysclet for this user"),
-		accentStyle.Render("Target: ~/.local/bin/sysclet"),
+		accentStyle.Render("Binary: " + installPath),
+		mutedStyle.Render("TDF fonts are bundled in the binary"),
 		"",
 	}
 	switch {
 	case m.installing:
-		content = append(content, accentStyle.Render(m.spinner.View()+" Installing from the latest source..."))
+		content = append(content, accentStyle.Render(m.spinner.View()+" Installing "+syscletModule))
+		content = append(content, mutedStyle.Render("Destination: "+installPath))
+		if m.output != "" {
+			content = append(content, titleStyle.Render("Progress"), lipgloss.NewStyle().Width(78).Render(m.output))
+		}
 		content = append(content, mutedStyle.Render("Ctrl+C cancels the Go install"))
 	case m.done && m.err == nil:
-		content = append(content, successStyle.Render("Installed successfully."))
-		content = append(content, "Run: ~/.local/bin/sysclet")
+		content = append(content, successStyle.Render("Installed successfully to "+installPath))
+		if m.output != "" {
+			content = append(content, titleStyle.Render("Progress"), lipgloss.NewStyle().Width(78).Render(m.output))
+		}
+		content = append(content, "Run: "+installPath)
 		content = append(content, mutedStyle.Render("Enter or q to close"))
 	case m.done:
 		content = append(content, errorStyle.Render("Install failed: "+m.err.Error()))
@@ -168,6 +216,7 @@ func (m model) View() string {
 		}
 		content = append(content, mutedStyle.Render("Enter or q to close"))
 	default:
+		content = append(content, mutedStyle.Render("Install: "+syscletModule))
 		content = append(content, accentStyle.Render("Enter  Install or update sysclet"))
 		content = append(content, mutedStyle.Render("q  Quit"))
 		content = append(content, "")
@@ -185,20 +234,62 @@ func installCmd(ctx context.Context, installDir string) tea.Cmd {
 	return func() tea.Msg {
 		goPath, err := exec.LookPath("go")
 		if err != nil {
-			return installResultMsg{err: fmt.Errorf("find Go on PATH: %w", err)}
+			return installStartedMsg{err: fmt.Errorf("find Go on PATH: %w", err)}
 		}
 		if err := os.MkdirAll(installDir, 0o755); err != nil {
-			return installResultMsg{err: fmt.Errorf("create %s: %w", installDir, err)}
+			return installStartedMsg{err: fmt.Errorf("create %s: %w", installDir, err)}
 		}
 
 		cmd := exec.CommandContext(ctx, goPath, "install", syscletModule)
 		cmd.Env = withEnv(os.Environ(), "GOBIN", installDir)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return installResultMsg{err: fmt.Errorf("go install failed: %w", err), output: string(output)}
+		reader, writer := io.Pipe()
+		cmd.Stdout = writer
+		cmd.Stderr = writer
+		if err := cmd.Start(); err != nil {
+			_ = reader.Close()
+			_ = writer.Close()
+			return installStartedMsg{err: fmt.Errorf("start go install: %w", err)}
 		}
-		return installResultMsg{}
+		done := make(chan error, 1)
+		go func() {
+			err := cmd.Wait()
+			_ = writer.Close()
+			if err != nil {
+				err = fmt.Errorf("go install failed: %w", err)
+			}
+			done <- err
+		}()
+		return installStartedMsg{stream: &installStream{pipe: reader, reader: bufio.NewReader(reader), done: done}}
 	}
+}
+
+func readInstallOutputCmd(stream *installStream) tea.Cmd {
+	return func() tea.Msg {
+		line, err := stream.reader.ReadString('\n')
+		line = strings.TrimRight(line, "\r\n")
+		if line != "" {
+			return installOutputMsg{line: line}
+		}
+		if err == io.EOF {
+			return installDoneMsg{err: <-stream.done}
+		}
+		if err != nil {
+			return installDoneMsg{err: err}
+		}
+		return installOutputMsg{}
+	}
+}
+
+func appendInstallOutput(current, line string) string {
+	lines := []string{}
+	if current != "" {
+		lines = strings.Split(current, "\n")
+	}
+	lines = append(lines, line)
+	if len(lines) > 6 {
+		lines = lines[len(lines)-6:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func withEnv(env []string, key, value string) []string {
@@ -210,12 +301,4 @@ func withEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(result, key+"="+value)
-}
-
-func truncateRunes(value string, limit int) string {
-	runes := []rune(value)
-	if len(runes) <= limit {
-		return value
-	}
-	return string(runes[:limit]) + "…"
 }

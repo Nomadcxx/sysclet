@@ -8,6 +8,9 @@ url="https://github.com/Nomadcxx/sysclet"
 # The GPL applies to sysclet code; bundled TDF fonts have separate terms.
 license=('GPL-3.0-only' 'custom')
 makedepends=('git' 'go')
+optdepends=('wl-clipboard: copy snippets from Wayland sessions'
+            'xclip: copy snippets from X11 sessions'
+            'xsel: copy snippets from X11 sessions')
 provides=('sysclet')
 conflicts=('sysclet')
 options=('!debug')

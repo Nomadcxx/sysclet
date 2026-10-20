@@ -31,6 +31,6 @@ sysclet render --font FONT.tdf [--font-name NAME] TEXT
 sysclet export --font FONT.tdf [--font-name NAME] --slot ascii_N [--config PROFILE] TEXT
 ```
 
-`render` writes actual ESC bytes. `export` writes config text using readable `\\033` escapes. A profile update backs up the original before atomically replacing the selected slot and enabling ANSI style.
+`render` writes actual ESC bytes. `export` writes config text using readable `\\033` escapes. Updating a profile backs up the original before atomically replacing the selected slot and enabling ANSI style; a missing path creates a minimal profile. System-owned paths require the caller to run sysclet with elevated privileges.
 
 Running `sysclet` or `sysclet tui` opens the interactive editor. `sysclet render` and `sysclet export` remain available for scripts.

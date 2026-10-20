@@ -1,7 +1,10 @@
 package main
 
 import (
+	"errors"
+	"go/format"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -162,6 +165,322 @@ func TestAlignmentControlChangesPreviewWidth(t *testing.T) {
 	}
 }
 
+func TestCenterAlignmentKeepsRaggedRowsOnSharedBlockOrigin(t *testing.T) {
+	art := "\x1b[0;31mABCDEFGH\x1b[0m\n\x1b[0;32mWXYZ\x1b[0m\n\x1b[0;34mAB\x1b[0m"
+	got := alignANSI(art, alignmentCenter, 12)
+	lines := strings.Split(ansi.Strip(got), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("aligned rows = %d, want 3", len(lines))
+	}
+	for i, line := range lines {
+		leading := len(line) - len(strings.TrimLeft(line, " "))
+		if leading != 2 {
+			t.Errorf("row %d starts at column %d, want shared block origin column 2: %q", i, leading, line)
+		}
+		if width := ansi.StringWidth(line); width != 12 {
+			t.Errorf("row %d width = %d, want 12", i, width)
+		}
+	}
+}
+
+func TestPreviewViewKeepsCenteredRowsOnASharedOrigin(t *testing.T) {
+	model := newEditorModel()
+	model.width, model.height = 120, 32
+	model.previewRaw = "\x1b[0;31mABCDEFGH\x1b[0m\n\x1b[0;32mWXYZ\x1b[0m"
+	view := ansi.Strip(model.View())
+	positions := map[string]int{}
+	for _, line := range strings.Split(view, "\n") {
+		for _, art := range []string{"ABCDEFGH", "WXYZ"} {
+			if position := strings.Index(line, art); position >= 0 {
+				positions[art] = position
+			}
+		}
+	}
+	first, firstOK := positions["ABCDEFGH"]
+	second, secondOK := positions["WXYZ"]
+	if !firstOK || !secondOK {
+		t.Fatalf("preview rows not found in view: %#v", positions)
+	}
+	if first != second {
+		t.Fatalf("centered row origins differ: %#v\n%s", positions, view)
+	}
+}
+
+func TestFontControlCyclesWithVerticalArrows(t *testing.T) {
+	model := newEditorModel()
+	model.selectedControl = controlFont
+	original := model.font.Name
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyDown}))
+	if model.font.Name == original {
+		t.Fatalf("font after Down = %q, want a different bundled font", model.font.Name)
+	}
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyUp}))
+	if model.font.Name != original {
+		t.Fatalf("font after Down then Up = %q, want %q", model.font.Name, original)
+	}
+}
+
+func TestTabMovesThroughControlsAndShiftTabMovesBack(t *testing.T) {
+	model := newEditorModel()
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
+	if model.selectedControl != controlFont {
+		t.Fatalf("selected control after Tab = %d, want TDF FONT (%d)", model.selectedControl, controlFont)
+	}
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
+	if model.selectedControl != controlAlignment {
+		t.Fatalf("selected control after second Tab = %d, want ALIGN (%d)", model.selectedControl, controlAlignment)
+	}
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyShiftTab}))
+	if model.selectedControl != controlFont {
+		t.Fatalf("selected control after Shift+Tab = %d, want TDF FONT (%d)", model.selectedControl, controlFont)
+	}
+
+	model.selectedControl = controlText
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyShiftTab}))
+	if model.selectedControl != controlExport {
+		t.Fatalf("selected control after Shift+Tab at first control = %d, want EXPORT (%d)", model.selectedControl, controlExport)
+	}
+}
+
+func TestViewIdentifiesTheSelectedControl(t *testing.T) {
+	model := newEditorModel()
+	model.width, model.height = 100, 32
+	model.selectedControl = controlBackground
+	view := ansi.Strip(model.View())
+	if !strings.Contains(view, "SELECTED: BG") {
+		t.Fatalf("view does not identify selected BG control:\n%s", view)
+	}
+}
+
+func TestFocusedControlHasADistinctRing(t *testing.T) {
+	model := newEditorModel()
+	model.selectedControl = controlAlignment
+	focused := ansi.Strip(model.controlView(controlAlignment, "ALIGN", "Center"))
+	unfocused := ansi.Strip(model.controlView(controlText, "TEXT", "SYSC"))
+	if !strings.Contains(focused, "╔") || !strings.Contains(focused, "║") {
+		t.Fatalf("focused control has no distinct ring:\n%s", focused)
+	}
+	if strings.Contains(unfocused, "╔") || strings.Contains(unfocused, "║") {
+		t.Fatalf("unfocused control unexpectedly has focused ring:\n%s", unfocused)
+	}
+}
+
+func TestViewShowsTheFullFontNameAboveControls(t *testing.T) {
+	model := newEditorModel()
+	model.width, model.height = 100, 32
+	model.font.Name = "A Font Name Longer Than The Control"
+	view := ansi.Strip(model.View())
+	if !strings.Contains(view, model.font.Name) {
+		t.Fatalf("view does not show full font name %q", model.font.Name)
+	}
+}
+
+func TestControlStripUsesTheAvailableScreenWidth(t *testing.T) {
+	model := newEditorModel()
+	model.width, model.height = 120, 32
+	for _, line := range strings.Split(ansi.Strip(model.View()), "\n") {
+		if strings.Contains(line, "TEXT") && strings.Contains(line, "TDF FONT") && strings.Contains(line, "EXPORT") {
+			if position := strings.Index(line, "EXPORT"); position < model.width-40 {
+				t.Fatalf("EXPORT control starts at column %d, want near the right edge", position)
+			}
+			return
+		}
+	}
+	t.Fatal("control strip row not found")
+}
+
+func TestExportViewListsBITFormatsWithSyscGreetFirst(t *testing.T) {
+	model := newEditorModel()
+	model.width, model.height = 120, 36
+	model.openExport()
+	view := ansi.Strip(model.View())
+	for _, format := range []string{"sysc-greet", "TXT", "GO", "JS", "PY", "RS", "SH"} {
+		if !strings.Contains(view, format) {
+			t.Errorf("export view is missing %q", format)
+		}
+	}
+	if !strings.Contains(view, "Snippet preview") {
+		t.Fatal("sysc-greet export lost its snippet preview")
+	}
+}
+
+func TestExportF5CopiesPlainSyscGreetSnippet(t *testing.T) {
+	model := newEditorModel()
+	model.openExport()
+	model.slotInput.SetValue("ascii_3")
+	var copied string
+	model.writeClipboard = func(value string) error {
+		copied = value
+		return nil
+	}
+
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyF5}))
+	want, err := ProfileSnippet("ascii_3", model.preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied != want {
+		t.Fatalf("copied snippet = %q, want %q", copied, want)
+	}
+	if model.status != "Copied sysc-greet snippet to clipboard" {
+		t.Fatalf("copy status = %q, want success message", model.status)
+	}
+}
+
+func TestExportF5ReportsClipboardErrors(t *testing.T) {
+	model := newEditorModel()
+	model.openExport()
+	model.writeClipboard = func(string) error { return errors.New("clipboard unavailable") }
+
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyF5}))
+	if model.status != "Clipboard copy failed: clipboard unavailable" {
+		t.Fatalf("copy status = %q, want clipboard error", model.status)
+	}
+}
+
+func TestExportCanWriteBashOutputAlongsideSyscGreet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "header.sh")
+	model := newEditorModel()
+	font := Font{Name: "Tiny"}
+	font.Glyphs[int('A'-33)] = [][]Cell{{{Rune: 'A', Color: 0x14}}}
+	model.font = font
+	if err := model.setText("A"); err != nil {
+		t.Fatal(err)
+	}
+	model.openExport()
+	model.profilePathInput.SetValue(path)
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
+	for i := 0; i < 6; i++ {
+		model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyDown}))
+	}
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyCtrlS}))
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read generated Bash file: %v (status: %s)", err, model.status)
+	}
+	for _, want := range []string{"#!/bin/sh", "printf '%b\\n'", `\033[0;31;44mA\033[0m`} {
+		if !strings.Contains(string(content), want) {
+			t.Errorf("Bash export is missing %q: %s", want, content)
+		}
+	}
+	rendered, err := exec.Command("sh", path).Output()
+	if err != nil {
+		t.Fatalf("run generated Bash script: %v", err)
+	}
+	if !strings.Contains(string(rendered), "\x1b[0;31;44mA\x1b[0m") {
+		t.Fatalf("Bash output = %q, want the colored glyph", rendered)
+	}
+}
+
+func TestBITExportFormatsWriteTheirExpectedContent(t *testing.T) {
+	tests := []struct {
+		name       string
+		steps      int
+		extension  string
+		want       string
+		wantAbsent string
+	}{
+		{name: "TXT", steps: 1, extension: ".txt", want: "A", wantAbsent: "\x1b["},
+		{name: "GO", steps: 2, extension: ".go", want: "package main", wantAbsent: ""},
+		{name: "JS", steps: 3, extension: ".js", want: "console.log", wantAbsent: ""},
+		{name: "PY", steps: 4, extension: ".py", want: "print(line)", wantAbsent: ""},
+		{name: "RS", steps: 5, extension: ".rs", want: "fn main()", wantAbsent: ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "header")
+			model := newEditorModel()
+			font := Font{Name: "Tiny"}
+			font.Glyphs[int('A'-33)] = [][]Cell{{{Rune: 'A', Color: 0x14}}}
+			model.font = font
+			if err := model.setText("A"); err != nil {
+				t.Fatal(err)
+			}
+			model.openExport()
+			model.profilePathInput.SetValue(path)
+			model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
+			model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
+			for i := 0; i < test.steps; i++ {
+				model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyDown}))
+			}
+			model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyCtrlS}))
+
+			content, err := os.ReadFile(path + test.extension)
+			if err != nil {
+				t.Fatalf("read %s output: %v (status: %s)", test.name, err, model.status)
+			}
+			if !strings.Contains(string(content), test.want) {
+				t.Errorf("%s output is missing %q: %s", test.name, test.want, content)
+			}
+			if test.wantAbsent != "" && strings.Contains(string(content), test.wantAbsent) {
+				t.Errorf("%s output unexpectedly contains %q: %s", test.name, test.wantAbsent, content)
+			}
+			if test.name == "GO" {
+				if _, err := format.Source(content); err != nil {
+					t.Errorf("GO output is not valid Go source: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestWriteExportFileKeepsBackupOfExistingOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "header.txt")
+	original := "old header"
+	if err := os.WriteFile(path, []byte(original), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	gotPath, backupPath, err := writeExportFile(path, exportTXT, "new header")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != path {
+		t.Fatalf("export path = %q, want %q", gotPath, path)
+	}
+	if backupPath == "" {
+		t.Fatal("replacing existing output did not create a backup")
+	}
+	backup, err := os.ReadFile(backupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(backup) != original {
+		t.Fatalf("backup = %q, want %q", backup, original)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(updated) != "new header" {
+		t.Fatalf("updated export = %q, want new header", updated)
+	}
+}
+
+func TestWriteExportFileRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.txt")
+	link := filepath.Join(dir, "header.txt")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	if _, _, err := writeExportFile(link, exportTXT, "replace"); err == nil {
+		t.Fatal("writeExportFile followed a symlink")
+	}
+	contents, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "keep" {
+		t.Fatalf("symlink target changed to %q", contents)
+	}
+}
+
 func TestPreviewCentersWithinAn80ColumnPanel(t *testing.T) {
 	model := newEditorModel()
 	model.width, model.height = 80, 24
@@ -312,6 +631,74 @@ func TestExportCtrlOBrowsesProfiles(t *testing.T) {
 	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyCtrlO}))
 	if model.mode != modeProfilePicker {
 		t.Fatalf("mode after Ctrl+O = %v, want profile picker", model.mode)
+	}
+}
+
+func TestExportBrowserWorksFromAnyFieldAndForCurrentFormat(t *testing.T) {
+	tests := []struct {
+		name   string
+		format exportFormat
+		focus  int
+		key    tea.KeyType
+		ext    string
+	}{
+		{name: "profile path", format: exportSyscGreet, focus: exportFocusPath, key: tea.KeyCtrlO, ext: ".conf"},
+		{name: "profile slot", format: exportSyscGreet, focus: exportFocusSlot, key: tea.KeyCtrlO, ext: ".conf"},
+		{name: "profile format", format: exportSyscGreet, focus: exportFocusFormat, key: tea.KeyCtrlO, ext: ".conf"},
+		{name: "file output", format: exportTXT, focus: exportFocusFormat, key: tea.KeyCtrlB, ext: ".txt"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			model := newEditorModel()
+			model.width, model.height = 100, 32
+			model.mode = modeExport
+			model.exportFormat = test.format
+			model.exportFocus = test.focus
+			model.profilePathInput.SetValue(filepath.Join(dir, "new"+test.ext))
+			model.Update(tea.KeyMsg(tea.Key{Type: test.key}))
+			if model.mode != modeProfilePicker {
+				t.Fatalf("mode after browse key = %v, want file picker", model.mode)
+			}
+			if model.filePicker.CurrentDirectory != dir {
+				t.Fatalf("picker directory = %q, want %q", model.filePicker.CurrentDirectory, dir)
+			}
+			if len(model.filePicker.AllowedTypes) != 1 || model.filePicker.AllowedTypes[0] != test.ext {
+				t.Fatalf("picker allowed types = %v, want %q", model.filePicker.AllowedTypes, test.ext)
+			}
+		})
+	}
+}
+
+func TestPickerStartDirUsesExistingParentForMissingPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "missing", "new.conf")
+	if got := pickerStartDir(path); got != dir {
+		t.Fatalf("pickerStartDir(%q) = %q, want nearest existing directory %q", path, got, dir)
+	}
+}
+
+func TestExportCreatesMissingSyscGreetProfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "new-profile.conf")
+	model := newEditorModel()
+	model.openExport()
+	model.profilePathInput.SetValue(path)
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyCtrlS}))
+	if !strings.HasPrefix(model.status, "Created profile ") {
+		t.Fatalf("export status = %q, want created-profile confirmation", model.status)
+	}
+	if strings.Contains(model.status, "backup:") {
+		t.Fatalf("new profile status claims a backup exists: %q", model.status)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("new profile was not created: %v", err)
+	}
+}
+
+func TestPermissionExportErrorExplainsHowToWriteSystemProfiles(t *testing.T) {
+	message := formatExportError(os.ErrPermission)
+	if !strings.Contains(message, "sudo") || !strings.Contains(message, "writable path") {
+		t.Fatalf("permission error message = %q, want explicit elevation and writable-path guidance", message)
 	}
 }
 

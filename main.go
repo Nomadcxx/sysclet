@@ -83,7 +83,7 @@ func runExport(args []string, stdout, stderr io.Writer) int {
 	fontPath := flags.String("font", "", "path to a local TheDraw TDF font file")
 	fontName := flags.String("font-name", "", "font name in the file, or bundled font when --font is omitted")
 	slot := flags.String("slot", "", "sysc-greet ASCII slot, such as ascii_1")
-	configPath := flags.String("config", "", "update this profile and save a backup")
+	configPath := flags.String("config", "", "create or update this sysc-greet profile")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: sysclet export (--font FONT.tdf [--font-name NAME] | --font-name BUNDLED_FONT) --slot ascii_N [--config PROFILE] TEXT")
 		flags.PrintDefaults()
@@ -116,8 +116,12 @@ func runExport(args []string, stdout, stderr io.Writer) int {
 	if *configPath != "" {
 		backupPath, err := UpdateProfile(*configPath, *slot, art)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			fmt.Fprintln(stderr, formatExportError(err))
 			return 1
+		}
+		if backupPath == "" {
+			fmt.Fprintf(stderr, "created %s\n", *configPath)
+			return 0
 		}
 		fmt.Fprintf(stderr, "updated %s\nbackup: %s\n", *configPath, backupPath)
 		return 0
