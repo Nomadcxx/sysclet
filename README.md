@@ -30,16 +30,25 @@ The program embeds its font data and has no runtime package dependencies.
 
 ## Quick Start
 
-Install from the AUR:
+Install for your user on Linux distributions with Go and POSIX `sh`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Nomadcxx/sysclet/main/install.sh | sh
+```
+
+The TUI installs sysclet to `~/.local/bin`. It needs Go 1.20+ and network access. It does not use `sudo` or a distro package manager. If `~/.local/bin` is not on your `PATH`, run `~/.local/bin/sysclet`.
+
+You can install directly with Go instead:
+
+```sh
+mkdir -p "$HOME/.local/bin"
+GOBIN="$HOME/.local/bin" go install github.com/Nomadcxx/sysclet@latest
+```
+
+Or install from the AUR:
 
 ```sh
 yay -S sysclet-git
-```
-
-Or install with Go:
-
-```sh
-go install github.com/Nomadcxx/sysclet@latest
 ```
 
 Run `sysclet` to open the editor.
