@@ -15,6 +15,7 @@ type exportFormat string
 
 const (
 	exportSyscGreet exportFormat = "sysc-greet"
+	exportANSI      exportFormat = "ANSI"
 	exportTXT       exportFormat = "TXT"
 	exportGO        exportFormat = "GO"
 	exportJS        exportFormat = "JS"
@@ -30,6 +31,7 @@ type exportOption struct {
 
 var exportOptions = [...]exportOption{
 	{format: exportSyscGreet},
+	{format: exportANSI, extension: ".ans"},
 	{format: exportTXT, extension: ".txt"},
 	{format: exportGO, extension: ".go"},
 	{format: exportJS, extension: ".js"},
@@ -59,6 +61,46 @@ func exportExtension(format exportFormat) string {
 	return ""
 }
 
+func appendExportExtension(path string, format exportFormat) string {
+	if extension := exportExtension(format); extension != "" && !strings.HasSuffix(strings.ToLower(path), extension) {
+		return path + extension
+	}
+	return path
+}
+
+func shellQuoteArg(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func exportDisplayHint(format exportFormat, path string) string {
+	if format == exportSyscGreet {
+		return "Select the Beams effect in sysc-greet to animate this profile art."
+	}
+	if format == exportTXT {
+		return "Plain text only; ANSI colors are removed. Choose ANSI to keep them."
+	}
+	if strings.TrimSpace(path) == "" {
+		path = "header"
+	}
+	file := shellQuoteArg(appendExportExtension(strings.TrimSpace(path), format))
+	switch format {
+	case exportANSI:
+		return "Display in a terminal: cat " + file + " or less -R " + file
+	case exportGO:
+		return "Run in a terminal: go run " + file
+	case exportJS:
+		return "Run in a terminal: node " + file
+	case exportPY:
+		return "Run in a terminal: python3 " + file
+	case exportRS:
+		return "Run in a terminal: rustc " + file + " -o sysclet-header && ./sysclet-header"
+	case exportSH:
+		return "Run in a terminal: sh " + file
+	default:
+		return ""
+	}
+}
+
 func formatExportError(err error) string {
 	if os.IsPermission(err) {
 		return "export: permission denied; run sysclet with sudo for protected system paths, or choose a writable path"
@@ -72,6 +114,9 @@ func generateExportContent(format exportFormat, slot, art string) (string, error
 	}
 	if format == exportSyscGreet {
 		return ProfileSnippet(slot, art)
+	}
+	if format == exportANSI {
+		return art, nil
 	}
 	if format == exportTXT {
 		return ansi.Strip(art), nil
@@ -142,9 +187,7 @@ func writeExportFile(path string, format exportFormat, content string) (string, 
 	if extension == "" {
 		return "", "", fmt.Errorf("%q is not a file export format", format)
 	}
-	if !strings.HasSuffix(path, extension) {
-		path += extension
-	}
+	path = appendExportExtension(path, format)
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return "", "", fmt.Errorf("resolve output path: %w", err)

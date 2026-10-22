@@ -8,7 +8,7 @@ Hallmark found no named visual anti-patterns that apply to this terminal UI: 0 c
 
 ## Design
 
-Export opens on a visible format tab. Tab and Shift+Tab move through each format tab, then the destination and the sysc-greet slot when applicable. Left and right also change formats while a tab has focus. The current selection uses a clear inverse/high-contrast treatment that preserves the existing cyan accent. The preview gets a height budget so it cannot push the save hint off a short terminal.
+Export opens on a visible format tab. Tab and Shift+Tab move through each format tab, then the destination and the sysc-greet slot when applicable. Left and right also change formats while a tab has focus. The current selection uses a clear inverse/high-contrast treatment that preserves the existing cyan accent. At narrow or short terminal sizes, export switches to a compact layout and hides the preview so the destination, format guidance, and key hints remain visible.
 
 Add a raw ANSI format that writes the rendered escape sequences to `.ans`. Keep TXT plain and label that ANSI colors are removed. For executable formats, show the terminal command for running the generated file. For ANSI output, show `cat file.ans` and `less -R file.ans` as display options.
 
@@ -20,4 +20,4 @@ Store the supplied `ansi_style=true` and `ascii_1` block verbatim in `assets/sys
 
 ## Validation
 
-Test format navigation, raw ANSI preservation, output hints, compositor mapping, automatic slot selection, explicit slot replacement, and preview height at a short terminal size. Compare the checked-in profile text byte-for-byte against its expected content. Verify that the wordmark is still an animated WebP and retains alpha.
+Test format navigation, raw ANSI preservation, output hints, compositor mapping, automatic slot selection, explicit slot replacement, and full-screen and compact-terminal layouts. Compare the checked-in profile text byte-for-byte against its expected content. Verify that the wordmark is an animated WebP and retains alpha.

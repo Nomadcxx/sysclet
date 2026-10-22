@@ -289,18 +289,136 @@ func TestControlStripUsesTheAvailableScreenWidth(t *testing.T) {
 	t.Fatal("control strip row not found")
 }
 
-func TestExportViewListsBITFormatsWithSyscGreetFirst(t *testing.T) {
+func TestExportViewListsFormatsWithSyscGreetFirst(t *testing.T) {
 	model := newEditorModel()
 	model.width, model.height = 120, 36
 	model.openExport()
 	view := ansi.Strip(model.View())
-	for _, format := range []string{"sysc-greet", "TXT", "GO", "JS", "PY", "RS", "SH"} {
+	for _, format := range []string{"sysc-greet", "ANSI", "TXT", "GO", "JS", "PY", "RS", "SH"} {
 		if !strings.Contains(view, format) {
 			t.Errorf("export view is missing %q", format)
 		}
 	}
 	if !strings.Contains(view, "Snippet preview") {
 		t.Fatal("sysc-greet export lost its snippet preview")
+	}
+}
+
+func TestExportTabsThroughFormatsBeforeDestination(t *testing.T) {
+	model := newEditorModel()
+	model.openExport()
+	want := []exportFormat{exportSyscGreet, exportANSI, exportTXT, exportGO, exportJS, exportPY, exportRS, exportSH}
+	for i, format := range want {
+		if model.exportFormat != format {
+			t.Fatalf("format tab %d = %q, want %q", i, model.exportFormat, format)
+		}
+		model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
+	}
+	if model.exportFormat != exportSyscGreet {
+		t.Fatalf("format after cycling all tabs = %q, want sysc-greet", model.exportFormat)
+	}
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyShiftTab}))
+	if model.exportFormat != exportSH {
+		t.Fatalf("format after Shift+Tab = %q, want SH", model.exportFormat)
+	}
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
+	if model.exportFormat != exportSyscGreet {
+		t.Fatalf("format after Tab = %q, want sysc-greet", model.exportFormat)
+	}
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyEnter}))
+	if model.exportFocus != exportFocusPath {
+		t.Fatalf("focus after opening destination = %d, want output path", model.exportFocus)
+	}
+}
+
+func TestOpenExportPreservesExplicitProfilePath(t *testing.T) {
+	model := newEditorModel()
+	path := filepath.Join(t.TempDir(), "custom-compositor.conf")
+	model.profilePathInput.SetValue(path)
+
+	model.openExport()
+
+	if got := model.profilePathInput.Value(); got != path {
+		t.Fatalf("profile path after opening export = %q, want explicit path %q", got, path)
+	}
+}
+
+func TestOpenExportShowsProfileSlotReadErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "malformed.conf")
+	if err := os.WriteFile(path, []byte("ascii_1=\"\"\"\nunterminated\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := newEditorModel()
+	model.profilePathInput.SetValue(path)
+
+	model.openExport()
+
+	if !strings.Contains(model.status, "Cannot choose a new profile slot") {
+		t.Fatalf("export status = %q, want profile parsing guidance", model.status)
+	}
+}
+
+func TestExportDetectsProfileWhenSwitchingToSyscGreet(t *testing.T) {
+	profileName := "sysclet_test_compositor"
+	configHome := t.TempDir()
+	configDir := filepath.Join(configHome, "sysc-greet", "ascii_configs")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	profilePath := filepath.Join(configDir, profileName+".conf")
+	if err := os.WriteFile(profilePath, []byte("ascii_2=\"\"\"\nexisting\n\"\"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("SYSC_COMPOSITOR", profileName)
+	t.Setenv("NIRI_SOCKET", "")
+	t.Setenv("SWAYSOCK", "")
+	t.Setenv("HYPRLAND_INSTANCE_SIGNATURE", "")
+	t.Setenv("XDG_CURRENT_DESKTOP", "")
+	t.Setenv("XDG_SESSION_DESKTOP", "")
+	t.Setenv("DESKTOP_SESSION", "")
+
+	model := newEditorModel()
+	model.exportFormat = exportANSI
+	model.openExport()
+	for i := 0; i < len(exportOptions)-1; i++ {
+		model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
+	}
+
+	if model.exportFormat != exportSyscGreet {
+		t.Fatalf("selected format = %q, want sysc-greet", model.exportFormat)
+	}
+	if got := model.profilePathInput.Value(); got != profilePath {
+		t.Fatalf("detected profile path = %q, want %q", got, profilePath)
+	}
+	if got := model.slotInput.Value(); got != "ascii_3" {
+		t.Fatalf("detected profile slot = %q, want ascii_3", got)
+	}
+}
+
+func TestExportF5UsesNextSlotForTypedProfilePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "greeter.conf")
+	profile := "ascii_1=\"\"\"\nfirst\n\"\"\"\nascii_3=\"\"\"\nthird\n\"\"\"\n"
+	if err := os.WriteFile(path, []byte(profile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	model := newEditorModel()
+	model.mode = modeExport
+	model.exportFormat = exportSyscGreet
+	model.slotAuto = true
+	model.profilePathInput.SetValue(path)
+	model.preview = "A"
+	var copied string
+	model.writeClipboard = func(value string) error {
+		copied = value
+		return nil
+	}
+
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyF5}))
+
+	if !strings.Contains(copied, "ascii_4=\"\"\"\n") || strings.Contains(copied, "ascii_1=\"\"\"\n") {
+		t.Fatalf("copied snippet = %q, want the next profile slot ascii_4", copied)
 	}
 }
 
@@ -348,12 +466,11 @@ func TestExportCanWriteBashOutputAlongsideSyscGreet(t *testing.T) {
 		t.Fatal(err)
 	}
 	model.openExport()
-	model.profilePathInput.SetValue(path)
-	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
-	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
-	for i := 0; i < 6; i++ {
-		model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyDown}))
+	model.filePathInput.SetValue(path)
+	for i := 0; i < 7; i++ {
+		model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
 	}
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyEnter}))
 	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyCtrlS}))
 
 	content, err := os.ReadFile(path)
@@ -377,16 +494,17 @@ func TestExportCanWriteBashOutputAlongsideSyscGreet(t *testing.T) {
 func TestBITExportFormatsWriteTheirExpectedContent(t *testing.T) {
 	tests := []struct {
 		name       string
-		steps      int
+		tabs       int
 		extension  string
 		want       string
 		wantAbsent string
 	}{
-		{name: "TXT", steps: 1, extension: ".txt", want: "A", wantAbsent: "\x1b["},
-		{name: "GO", steps: 2, extension: ".go", want: "package main", wantAbsent: ""},
-		{name: "JS", steps: 3, extension: ".js", want: "console.log", wantAbsent: ""},
-		{name: "PY", steps: 4, extension: ".py", want: "print(line)", wantAbsent: ""},
-		{name: "RS", steps: 5, extension: ".rs", want: "fn main()", wantAbsent: ""},
+		{name: "ANSI", tabs: 1, extension: ".ans", want: "\x1b[0;31;44mA\x1b[0m"},
+		{name: "TXT", tabs: 2, extension: ".txt", want: "A", wantAbsent: "\x1b["},
+		{name: "GO", tabs: 3, extension: ".go", want: "package main", wantAbsent: ""},
+		{name: "JS", tabs: 4, extension: ".js", want: "console.log", wantAbsent: ""},
+		{name: "PY", tabs: 5, extension: ".py", want: "print(line)", wantAbsent: ""},
+		{name: "RS", tabs: 6, extension: ".rs", want: "fn main()", wantAbsent: ""},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -399,12 +517,11 @@ func TestBITExportFormatsWriteTheirExpectedContent(t *testing.T) {
 				t.Fatal(err)
 			}
 			model.openExport()
-			model.profilePathInput.SetValue(path)
-			model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
-			model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
-			for i := 0; i < test.steps; i++ {
-				model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyDown}))
+			model.filePathInput.SetValue(path)
+			for i := 0; i < test.tabs; i++ {
+				model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
 			}
+			model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyEnter}))
 			model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyCtrlS}))
 
 			content, err := os.ReadFile(path + test.extension)
@@ -609,8 +726,8 @@ func TestExportPreviewKeepsProfileEscapeEncoding(t *testing.T) {
 func TestExportPathCanContainP(t *testing.T) {
 	model := newEditorModel()
 	model.mode = modeExport
-	model.exportFocus = 0
-	model.profilePathInput.Focus()
+	model.exportFormat = exportSyscGreet
+	model.setExportFocus(exportFocusPath)
 	path := "/tmp/profile.conf"
 	for _, r := range path {
 		model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{r}}))
@@ -655,7 +772,7 @@ func TestExportBrowserWorksFromAnyFieldAndForCurrentFormat(t *testing.T) {
 			model.mode = modeExport
 			model.exportFormat = test.format
 			model.exportFocus = test.focus
-			model.profilePathInput.SetValue(filepath.Join(dir, "new"+test.ext))
+			model.activeExportPathInput().SetValue(filepath.Join(dir, "new"+test.ext))
 			model.Update(tea.KeyMsg(tea.Key{Type: test.key}))
 			if model.mode != modeProfilePicker {
 				t.Fatalf("mode after browse key = %v, want file picker", model.mode)
@@ -704,17 +821,124 @@ func TestPermissionExportErrorExplainsHowToWriteSystemProfiles(t *testing.T) {
 
 func TestExportViewFitsFullScreenTerminal(t *testing.T) {
 	model := newEditorModel()
-	model.width, model.height = 153, 43
-	model.mode = modeExport
+	model.width, model.height = 80, 24
+	model.openExport()
 	model.profilePathInput.SetValue("/tmp/sysclet-showcase.conf")
+	model.refreshAutoSlot()
 	view := model.View()
-	for _, want := range []string{"Profile path", "/tmp/sysclet-showcase.conf", "ASCII slot", "Snippet preview"} {
+	for _, want := range []string{"OUTPUT FORMAT", "Profile path", "/tmp/sysclet-showcase.conf", "New slot", "Snippet preview", "Ctrl+S"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("export view does not show %q", want)
 		}
 	}
 	if lines := strings.Count(view, "\n") + 1; lines > model.height {
 		t.Fatalf("export view uses %d rows, terminal has %d", lines, model.height)
+	}
+	for i, line := range strings.Split(view, "\n") {
+		if got := ansi.StringWidth(line); got > model.width {
+			t.Errorf("export view row %d uses %d columns, terminal has %d: %q", i+1, got, model.width, line)
+		}
+	}
+}
+
+func TestExportViewFitsAtLayoutThreshold(t *testing.T) {
+	model := newEditorModel()
+	model.width, model.height = 58, 20
+	model.openExport()
+	model.profilePathInput.SetValue("/tmp/profile.conf")
+	view := model.View()
+	if lines := strings.Split(view, "\n"); len(lines) > model.height {
+		t.Fatalf("export view uses %d rows, terminal has %d", len(lines), model.height)
+	}
+	for i, line := range strings.Split(view, "\n") {
+		if got := ansi.StringWidth(line); got > model.width {
+			t.Errorf("export view row %d uses %d columns, terminal has %d", i+1, got, model.width)
+		}
+	}
+	if !strings.Contains(view, "Ctrl+S") {
+		t.Fatal("export view hid its save key at the layout threshold")
+	}
+}
+
+func TestExportViewFitsCompactTerminal(t *testing.T) {
+	for _, format := range []exportFormat{exportANSI, exportSyscGreet} {
+		t.Run(string(format), func(t *testing.T) {
+			model := newEditorModel()
+			model.width, model.height = 42, 14
+			model.openExport()
+			model.exportFormat = format
+			model.exportFocus = exportFocusFormat
+			model.filePathInput.SetValue("/tmp/header")
+			model.profilePathInput.SetValue("/tmp/profile.conf")
+			model.previewRaw = strings.Repeat("\x1b[0;97mSYSCLET\x1b[0m\n", 12)
+			if format == exportSyscGreet {
+				model.exportFocus = exportFocusSlot
+				_ = model.View()
+				model.slotInput.SetValue("ascii_123456789012345678901234")
+				model.slotInput.Blur()
+				model.exportFocus = exportFocusFormat
+			}
+
+			view := model.View()
+			lines := strings.Split(view, "\n")
+			if len(lines) > model.height {
+				t.Fatalf("export view uses %d rows, terminal has %d:\n%s", len(lines), model.height, view)
+			}
+			for _, want := range []string{"OUTPUT FORMAT", "Ctrl+S", "Tab formats"} {
+				if !strings.Contains(view, want) {
+					t.Errorf("compact export view does not show %q:\n%s", want, view)
+				}
+			}
+			if format == exportSyscGreet {
+				for _, want := range []string{"Profile", "New slot", "Beams"} {
+					if !strings.Contains(view, want) {
+						t.Errorf("compact sysc-greet export view does not show %q:\n%s", want, view)
+					}
+				}
+			}
+			for i, line := range lines {
+				if got := ansi.StringWidth(line); got > model.width {
+					t.Errorf("export view row %d uses %d columns, terminal has %d: %q", i+1, got, model.width, line)
+				}
+			}
+		})
+	}
+}
+
+func TestCompactExportKeepsPermissionRecoveryGuidance(t *testing.T) {
+	model := newEditorModel()
+	model.width, model.height = 42, 14
+	model.mode = modeExport
+	model.exportFormat = exportANSI
+	model.exportFocus = exportFocusFormat
+	model.status = formatExportError(os.ErrPermission)
+
+	view := model.View()
+	if !strings.Contains(view, "sudo") || !strings.Contains(view, "writable path") {
+		t.Fatalf("compact export hid permission recovery guidance:\n%s", view)
+	}
+	if !strings.Contains(view, "Ctrl+S") {
+		t.Fatalf("compact export hid its save key:\n%s", view)
+	}
+	if lines := strings.Split(view, "\n"); len(lines) > model.height {
+		t.Fatalf("compact export uses %d rows, terminal has %d", len(lines), model.height)
+	}
+}
+
+func TestCompactExportKeepsControlsVisibleWithLongStatus(t *testing.T) {
+	model := newEditorModel()
+	model.width, model.height = 42, 14
+	model.mode = modeExport
+	model.exportFormat = exportANSI
+	model.exportFocus = exportFocusFormat
+	model.status = "Exported " + strings.Repeat("./very-long-header-name-", 30)
+
+	view := model.View()
+	if !strings.Contains(view, "Ctrl+S") {
+		t.Fatalf("compact export hid controls behind a long status:\n%s", view)
+	}
+	if lines := strings.Split(view, "\n"); len(lines) > model.height {
+		t.Fatalf("compact export uses %d rows, terminal has %d", len(lines), model.height)
 	}
 }
 
@@ -732,8 +956,8 @@ func TestExportUpdatesProfileOnlyOnCtrlSAndKeepsBackup(t *testing.T) {
 	if err := model.setText("A"); err != nil {
 		t.Fatal(err)
 	}
+	model.openExport()
 	model.profilePathInput.SetValue(path)
-	model.mode = modeExport
 
 	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyEnter}))
 	unchanged, err := os.ReadFile(path)
@@ -766,6 +990,130 @@ func TestExportUpdatesProfileOnlyOnCtrlSAndKeepsBackup(t *testing.T) {
 	}
 	if string(backup) != original {
 		t.Fatalf("backup = %q, want original profile", backup)
+	}
+}
+
+func TestExportAddsNextProfileSlotAndReusesItOnSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "greeter.conf")
+	original := "ansi_style=true\nascii_1=\"\"\"\nkeep this header\n\"\"\"\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	model := newEditorModel()
+	font := Font{Name: "Tiny"}
+	font.Glyphs[int('A'-33)] = [][]Cell{{{Rune: 'A', Color: 0x14}}}
+	model.font = font
+	if err := model.setText("A"); err != nil {
+		t.Fatal(err)
+	}
+	model.openExport()
+	model.profilePathInput.SetValue(path)
+
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyCtrlS}))
+	if got := model.slotInput.Value(); got != "ascii_2" {
+		t.Fatalf("saved slot = %q, want next slot ascii_2", got)
+	}
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyCtrlS}))
+
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updated), original) {
+		t.Fatalf("existing slot was changed: %q", updated)
+	}
+	if count := strings.Count(string(updated), "ascii_2=\"\"\""); count != 1 {
+		t.Fatalf("ascii_2 block count = %d, want one after two saves", count)
+	}
+}
+
+func TestEditingProfileSlotReplacesThatSlot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "greeter.conf")
+	original := "ansi_style=true\nascii_1=\"\"\"\nreplace this header\n\"\"\"\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	model := newEditorModel()
+	font := Font{Name: "Tiny"}
+	font.Glyphs[int('A'-33)] = [][]Cell{{{Rune: 'A', Color: 0x14}}}
+	model.font = font
+	if err := model.setText("A"); err != nil {
+		t.Fatal(err)
+	}
+	model.openExport()
+	model.profilePathInput.SetValue(path)
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyEnter}))
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
+	model.slotInput.SetValue("")
+	for _, char := range "ascii_1" {
+		model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{char}}))
+	}
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyCtrlS}))
+
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(updated), "replace this header") || !strings.Contains(string(updated), "\\033[") {
+		t.Fatalf("selected profile slot was not replaced: %q", updated)
+	}
+}
+
+func TestDetectSyscGreetProfile(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        map[string]string
+		profiles   []string
+		wantName   string
+		wantChoice string
+	}{
+		{
+			name:       "explicit compositor wins",
+			env:        map[string]string{"SYSC_COMPOSITOR": "Plasma", "NIRI_SOCKET": "niri.sock"},
+			profiles:   []string{"kde"},
+			wantName:   "kde",
+			wantChoice: "kde.conf",
+		},
+		{
+			name:       "compositor socket",
+			env:        map[string]string{"NIRI_SOCKET": "niri.sock"},
+			profiles:   []string{"niri"},
+			wantName:   "niri",
+			wantChoice: "niri.conf",
+		},
+		{
+			name:       "desktop aliases",
+			env:        map[string]string{"XDG_CURRENT_DESKTOP": "GNOME:Ubuntu"},
+			profiles:   []string{"gnome_desktop"},
+			wantName:   "gnome_desktop",
+			wantChoice: "gnome_desktop.conf",
+		},
+		{
+			name:     "unknown desktop",
+			env:      map[string]string{"XDG_CURRENT_DESKTOP": "unknown"},
+			profiles: []string{"niri"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, profile := range test.profiles {
+				path := filepath.Join(dir, profile+".conf")
+				if err := os.WriteFile(path, []byte("name=test\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			path, name := detectSyscGreetProfile(test.env, []string{dir})
+			if name != test.wantName {
+				t.Fatalf("detected compositor = %q, want %q", name, test.wantName)
+			}
+			if test.wantChoice != "" && filepath.Base(path) != test.wantChoice {
+				t.Fatalf("detected profile = %q, want %q", path, test.wantChoice)
+			}
+		})
 	}
 }
 

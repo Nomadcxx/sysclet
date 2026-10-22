@@ -1,0 +1,93 @@
+package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/x/ansi"
+)
+
+func TestANSIExportPreservesSGRSequences(t *testing.T) {
+	art := "\x1b[0;31mheader\x1b[0m\n"
+	got, err := generateExportContent(exportANSI, "", art)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != art {
+		t.Fatalf("ANSI export = %q, want exact input %q", got, art)
+	}
+	if extension := exportExtension(exportANSI); extension != ".ans" {
+		t.Fatalf("ANSI extension = %q, want .ans", extension)
+	}
+}
+
+func TestAppendExportExtensionAcceptsUppercaseExtension(t *testing.T) {
+	if got := appendExportExtension("header.ANS", exportANSI); got != "header.ANS" {
+		t.Fatalf("appendExportExtension() = %q, want header.ANS", got)
+	}
+}
+
+func TestExportDisplayHints(t *testing.T) {
+	path := "/tmp/my header"
+	tests := []struct {
+		format exportFormat
+		want   string
+	}{
+		{exportSyscGreet, "Select the Beams effect in sysc-greet to animate this profile art."},
+		{exportANSI, "Display in a terminal: cat '/tmp/my header.ans' or less -R '/tmp/my header.ans'"},
+		{exportTXT, "Plain text only; ANSI colors are removed. Choose ANSI to keep them."},
+		{exportGO, "Run in a terminal: go run '/tmp/my header.go'"},
+		{exportJS, "Run in a terminal: node '/tmp/my header.js'"},
+		{exportPY, "Run in a terminal: python3 '/tmp/my header.py'"},
+		{exportRS, "Run in a terminal: rustc '/tmp/my header.rs' -o sysclet-header && ./sysclet-header"},
+		{exportSH, "Run in a terminal: sh '/tmp/my header.sh'"},
+	}
+	for _, test := range tests {
+		t.Run(string(test.format), func(t *testing.T) {
+			if got := exportDisplayHint(test.format, path); got != test.want {
+				t.Fatalf("exportDisplayHint() = %q, want %q", got, test.want)
+			}
+		})
+	}
+	want := `Display in a terminal: cat '/tmp/a'\''b.ans' or less -R '/tmp/a'\''b.ans'`
+	if got := exportDisplayHint(exportANSI, "/tmp/a'b"); got != want {
+		t.Fatalf("exportDisplayHint() with an apostrophe = %q, want %q", got, want)
+	}
+}
+
+func TestClipExportPreviewKeepsWidthAndLineLimits(t *testing.T) {
+	got := clipExportPreview("\x1b[0;31m123456789\x1b[0m\nsecond line\nthird line\n", 5, 2)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("clipExportPreview() returned %d lines, want 2: %q", len(lines), got)
+	}
+	for i, line := range lines {
+		if width := ansi.StringWidth(line); width > 5 {
+			t.Errorf("preview line %d has visible width %d, want at most 5", i+1, width)
+		}
+	}
+	if !strings.Contains(lines[0], "\x1b[0;31m") {
+		t.Fatalf("truncated ANSI preview lost its color sequence: %q", got)
+	}
+}
+
+func TestRepositoryHeaderIsLiteralSyscGreetProfile(t *testing.T) {
+	profile, err := os.ReadFile("assets/sysclet-header.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsRune(string(profile), '\x1b') {
+		t.Fatal("header profile must store literal \\033 escapes")
+	}
+	if !strings.HasPrefix(string(profile), "ansi_style=true\nascii_1=\"\"\"\n") || !strings.HasSuffix(string(profile), "\n\"\"\"\n") {
+		t.Fatal("header profile is missing the sysc-greet setting or slot delimiters")
+	}
+	sum := sha256.Sum256(profile)
+	got := hex.EncodeToString(sum[:])
+	if want := "cfc3b5c3bc1392e34d2f77afd890fa9197374b434d657b3045b431ff24399334"; got != want {
+		t.Fatalf("header profile hash = %s, want %s", got, want)
+	}
+}

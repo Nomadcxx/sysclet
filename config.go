@@ -106,6 +106,41 @@ func validateSlot(slot string) error {
 	return nil
 }
 
+func nextProfileSlot(path string) (string, error) {
+	profile, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "ascii_1", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read profile %q: %w", path, err)
+	}
+
+	lines := strings.Split(string(profile), "\n")
+	highest := 0
+	for i := 0; i < len(lines); {
+		key, value, ok := configAssignment(lines[i])
+		if !ok {
+			i++
+			continue
+		}
+		if isASCIISlot(key) {
+			number, _ := strconv.Atoi(strings.TrimPrefix(key, "ascii_"))
+			if number > highest {
+				highest = number
+			}
+		}
+		next, err := skipProfileEntry(lines, i, key, value)
+		if err != nil {
+			return "", fmt.Errorf("profile slot %q: %w", key, err)
+		}
+		i = next
+	}
+	if highest == int(^uint(0)>>1) {
+		return "", errors.New("no unused ASCII slot number remains")
+	}
+	return fmt.Sprintf("ascii_%d", highest+1), nil
+}
+
 func slotLines(slot, art string) []string {
 	escaped := strings.ReplaceAll(art, "\x1b", `\033`)
 	escaped = strings.TrimSuffix(escaped, "\n")
