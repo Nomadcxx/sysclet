@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/sysclet-wordmark.webp" alt="SYSCLET rendered by sysclet with the bundled Bleach TDF font" width="72%" />
+<img src="assets/sysclet-wordmark.webp" alt="SYSCLET ANSI wordmark with a moving cyan beam" width="72%" />
 
 ### sysclet · ANSI Header Studio and TheDraw Font Catalog
 
@@ -24,6 +24,7 @@
 | **3,481 bundled font records** | Search and preview the bundled catalog without a network connection. Load other `.tdf` files from disk. |
 | **Authored color and alignment** | Keep each TDF cell's foreground and background by default. Choose left, center, or right alignment, or override either ANSI color. |
 | **sysc-greet export** | Preview a profile slot, create a new profile, or update an existing one with a backup. |
+| **ANSI export** | Save the colored terminal output as `.ans` and keep its escape sequences intact. |
 | **Command line** | Render a header or print an escaped sysc-greet profile snippet without opening the TUI. |
 
 The program embeds its font data. Clipboard copying uses the system clipboard utility when available; other features work without one.
@@ -59,9 +60,9 @@ The screen has a large ANSI preview, a control strip, and keyboard hints. The ac
 
 | Key | Action |
 | --- | --- |
-| `Tab` / `Shift+Tab` | Move forward/backward through the controls |
+| `Tab` / `Shift+Tab` | Move through controls; in export, cycle formats while the format row is focused |
 | `←` / `→` | Move between text, font, alignment, colors, and export controls |
-| `↑` / `↓` | Change the selected setting; cycle fonts when **TDF FONT** is selected |
+| `↑` / `↓` | Change the selected setting; cycle fonts at **TDF FONT** or formats on the export format row |
 | `Enter` | Edit text or open the selected control |
 | `Ctrl+O` in the font list | Browse for a local `.tdf` file |
 | `e` | Open export options, starting with sysc-greet |
@@ -102,9 +103,9 @@ Run `sysclet --help`, `sysclet render --help`, or `sysclet export --help` for op
 
 ## sysc-greet Export
 
-The TUI starts with the sysc-greet format. Its snippet preview shows the selected `ascii_N` slot with ANSI colors. `Ctrl+S` updates an existing profile and saves a timestamped backup, or creates a new profile containing the ANSI setting and selected slot. `Ctrl+O` and `Ctrl+B` open the file picker from any export field; they browse existing files, while new paths can be typed directly.
+The TUI starts with sysc-greet and detects a matching profile from the active compositor or desktop session when possible. It selects the next `ascii_N` slot by default. Edit the slot field to replace a specific entry. The snippet preview shows the selected slot with ANSI colors. `Ctrl+S` updates an existing profile with a timestamped backup or creates a profile with `ansi_style=true` and the selected slot. `Ctrl+O` and `Ctrl+B` open the file picker from any export field; type a path directly when the file does not exist yet.
 
-The other export formats match BIT: **TXT**, **GO**, **JS**, **PY**, **RS**, and **SH**. Select a format in the export view, enter an output path, and press `Ctrl+S`. sysclet adds the format extension when needed and backs up an existing file before replacing it.
+Press `Tab` or `Shift+Tab` on the format row to cycle formats. Press `Enter` to move to the destination, then use `Tab` to reach the optional sysc-greet slot. **ANSI** saves colored output as `.ans`; display it in a terminal with `cat header.ans` or `less -R header.ans`. **TXT** removes ANSI colors. **GO**, **JS**, **PY**, **RS**, and **SH** export runnable source and show a run command in the TUI. sysclet adds the format extension when needed and backs up an existing file before replacing it.
 
 sysclet does not request elevated privileges. User-owned profile paths can be saved normally; root-owned system paths require running sysclet with `sudo`. Existing permission bits are preserved when updated, and a new file belongs to the user running sysclet with mode `0644` limited by the system umask. Run the TUI as root only when editing a system-owned profile:
 
@@ -121,7 +122,7 @@ sudo "$HOME/.local/bin/sysclet" export --font-name Bleach --slot ascii_1 \
   --config /usr/share/sysc-greet/ascii_configs/sysc-compositor.conf COWBOY
 ```
 
-sysc-greet maps the ANSI colors through the selected theme.
+sysc-greet maps the ANSI colors through the selected theme. The profile stores the art and colors. Select the **Beams** display effect in sysc-greet to animate it.
 
 ## Font Catalog
 

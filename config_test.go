@@ -21,6 +21,84 @@ func TestProfileSnippetEscapesANSIForSyscGreet(t *testing.T) {
 	}
 }
 
+func TestNextProfileSlotAppendsAfterHighestExistingSlot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "greeter.conf")
+	profile := "ascii_1=\"\"\"\nfirst\n\"\"\"\nascii_4=\"\"\"\nfourth\n\"\"\"\n"
+	if err := os.WriteFile(path, []byte(profile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := nextProfileSlot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "ascii_5" {
+		t.Fatalf("nextProfileSlot() = %q, want ascii_5", got)
+	}
+}
+
+func TestNextProfileSlotStartsAtOneForMissingProfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.conf")
+	got, err := nextProfileSlot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "ascii_1" {
+		t.Fatalf("nextProfileSlot() = %q, want ascii_1", got)
+	}
+}
+
+func TestNextProfileSlotIgnoresAssignmentTextInsideASCII(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "greeter.conf")
+	profile := "ascii_1=\"\"\"\nart\nascii_99=not a profile slot\n\"\"\"\n"
+	if err := os.WriteFile(path, []byte(profile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := nextProfileSlot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "ascii_2" {
+		t.Fatalf("nextProfileSlot() = %q, want ascii_2", got)
+	}
+}
+
+func TestNextProfileSlotRejectsMalformedProfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "greeter.conf")
+	if err := os.WriteFile(path, []byte("ascii_1=\"\"\"\nunterminated\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nextProfileSlot(path); err == nil {
+		t.Fatal("nextProfileSlot() accepted an unterminated ASCII block")
+	}
+}
+
+func TestAppendProfileChoosesCurrentHighestSlot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "greeter.conf")
+	profile := "ascii_1=\"\"\"\nfirst\n\"\"\"\nascii_2=\"\"\"\nadded while export was open\n\"\"\"\n"
+	if err := os.WriteFile(path, []byte(profile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	slot, _, err := AppendProfile(path, "new art")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slot != "ascii_3" {
+		t.Fatalf("appended slot = %q, want ascii_3", slot)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"added while export was open", "ascii_3=\"\"\"\n", "new art"} {
+		if !strings.Contains(string(updated), want) {
+			t.Errorf("appended profile does not contain %q: %q", want, updated)
+		}
+	}
+}
+
 func TestUpdateProfileCreatesMissingProfile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "new-profile.conf")
 	backupPath, err := UpdateProfile(path, "ascii_2", "\x1b[0;31mnew\x1b[0m")

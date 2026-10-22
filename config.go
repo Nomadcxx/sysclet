@@ -26,47 +26,67 @@ func UpdateProfile(path, slot, art string) (string, error) {
 	if err := validateSlot(slot); err != nil {
 		return "", err
 	}
+	_, backupPath, err := updateProfile(path, slot, art)
+	return backupPath, err
+}
+
+func AppendProfile(path, art string) (slot, backupPath string, err error) {
+	return updateProfile(path, "", art)
+}
+
+// updateProfile chooses the next slot when slot is empty, using the same file contents it updates.
+func updateProfile(path, slot, art string) (string, string, error) {
+	autoSlot := slot == ""
 	if art == "" {
-		return "", fmt.Errorf("art must not be empty")
+		return "", "", fmt.Errorf("art must not be empty")
 	}
 
 	linkInfo, err := os.Lstat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			if autoSlot {
+				slot = "ascii_1"
+			}
 			snippet, snippetErr := ProfileSnippet(slot, art)
 			if snippetErr != nil {
-				return "", snippetErr
+				return "", "", snippetErr
 			}
 			if createErr := createProfileFile(path, []byte(snippet)); createErr != nil {
-				return "", fmt.Errorf("create profile %q: %w", path, createErr)
+				return "", "", fmt.Errorf("create profile %q: %w", path, createErr)
 			}
-			return "", nil
+			return slot, "", nil
 		}
-		return "", fmt.Errorf("inspect profile %q: %w", path, err)
+		return "", "", fmt.Errorf("inspect profile %q: %w", path, err)
 	}
 	if linkInfo.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("refusing to replace symlink %q; pass its target path", path)
+		return "", "", fmt.Errorf("refusing to replace symlink %q; pass its target path", path)
 	}
 	if !linkInfo.Mode().IsRegular() {
-		return "", fmt.Errorf("profile %q is not a regular file", path)
+		return "", "", fmt.Errorf("profile %q is not a regular file", path)
 	}
 
 	original, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("read profile %q: %w", path, err)
+		return "", "", fmt.Errorf("read profile %q: %w", path, err)
+	}
+	if autoSlot {
+		slot, err = nextProfileSlotFromProfile(string(original))
+		if err != nil {
+			return "", "", fmt.Errorf("choose a new profile slot: %w", err)
+		}
 	}
 	updated, err := replaceProfile(string(original), slot, art)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	backupPath, err := createBackup(path, original, linkInfo.Mode().Perm())
 	if err != nil {
-		return "", fmt.Errorf("back up profile %q: %w", path, err)
+		return "", "", fmt.Errorf("back up profile %q: %w", path, err)
 	}
 	if err := replaceFile(path, original, []byte(updated), linkInfo.Mode().Perm()); err != nil {
-		return backupPath, fmt.Errorf("write profile %q (original saved at %s): %w", path, backupPath, err)
+		return "", backupPath, fmt.Errorf("write profile %q (original saved at %s): %w", path, backupPath, err)
 	}
-	return backupPath, nil
+	return slot, backupPath, nil
 }
 
 func createProfileFile(path string, contents []byte) error {
@@ -104,6 +124,45 @@ func validateSlot(slot string) error {
 		return fmt.Errorf("invalid slot %q; expected ascii_N with N greater than zero", slot)
 	}
 	return nil
+}
+
+func nextProfileSlot(path string) (string, error) {
+	profile, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "ascii_1", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read profile %q: %w", path, err)
+	}
+
+	return nextProfileSlotFromProfile(string(profile))
+}
+
+func nextProfileSlotFromProfile(profile string) (string, error) {
+	lines := strings.Split(profile, "\n")
+	highest := 0
+	for i := 0; i < len(lines); {
+		key, value, ok := configAssignment(lines[i])
+		if !ok {
+			i++
+			continue
+		}
+		if isASCIISlot(key) {
+			number, _ := strconv.Atoi(strings.TrimPrefix(key, "ascii_"))
+			if number > highest {
+				highest = number
+			}
+		}
+		next, err := skipProfileEntry(lines, i, key, value)
+		if err != nil {
+			return "", fmt.Errorf("profile slot %q: %w", key, err)
+		}
+		i = next
+	}
+	if highest == int(^uint(0)>>1) {
+		return "", errors.New("no unused ASCII slot number remains")
+	}
+	return fmt.Sprintf("ascii_%d", highest+1), nil
 }
 
 func slotLines(slot, art string) []string {
