@@ -80,6 +80,71 @@ func TestParseTDFRejectsNameBeyondHeaderSlot(t *testing.T) {
 	}
 }
 
+func TestParseTDFRejectsControlCharactersInFontName(t *testing.T) {
+	data := testTDF()
+	data[tdfHeaderSize+5] = '\x1b'
+
+	if _, err := ParseTDF(data); err == nil || !strings.Contains(err.Error(), "non-printable name") {
+		t.Fatalf("ParseTDF error = %v, want invalid font name error", err)
+	}
+}
+
+func TestParseTDFBoundsExpandedGlyphCells(t *testing.T) {
+	const blockSize = 65535
+	glyphData := make([]byte, blockSize)
+	for i := 2; i < len(glyphData); i++ {
+		glyphData[i] = 'A'
+	}
+	data := testTDFWithRepeatedFontRecords(32, glyphData, 0)
+
+	if _, err := ParseTDF(data); err == nil || !strings.Contains(err.Error(), "expanded glyph data") {
+		t.Fatalf("ParseTDF error = %v, want expanded glyph data limit error", err)
+	}
+}
+
+func TestParseTDFBoundsExpandedGlyphRows(t *testing.T) {
+	glyphData := make([]byte, 65535)
+	for i := 2; i < len(glyphData); i++ {
+		glyphData[i] = 13
+	}
+	data := testTDFWithRepeatedFontRecords(32, glyphData, 0)
+
+	if _, err := ParseTDF(data); err == nil || !strings.Contains(err.Error(), "expanded glyph data") {
+		t.Fatalf("ParseTDF error = %v, want expanded glyph data limit error", err)
+	}
+}
+
+func TestParseTDFBoundsFontCount(t *testing.T) {
+	data := testTDFWithRepeatedFontRecords(4097, nil, 0)
+
+	if _, err := ParseTDF(data); err == nil || !strings.Contains(err.Error(), "font record limit") {
+		t.Fatalf("ParseTDF error = %v, want font record limit error", err)
+	}
+}
+
+func TestParseTDFReusesGlyphDataForDuplicateOffsets(t *testing.T) {
+	const blockSize = 12_000
+	glyphData := make([]byte, blockSize)
+	for i := 2; i < len(glyphData); i++ {
+		glyphData[i] = 'A'
+	}
+	data := testTDFWithRepeatedFontRecords(1, glyphData, 0)
+	for i := 0; i < tdfGlyphCount; i++ {
+		binary.LittleEndian.PutUint16(data[tdfHeaderSize+25+i*2:], 0)
+	}
+
+	fonts, err := ParseTDF(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := &fonts[0].Glyphs[0][0][0]
+	for i := 1; i < tdfGlyphCount; i++ {
+		if got := &fonts[0].Glyphs[i][0][0]; got != first {
+			t.Fatalf("glyph %d did not reuse the shared data", i)
+		}
+	}
+}
+
 func TestRenderRejectsTextWithoutFontGlyph(t *testing.T) {
 	fonts, err := ParseTDF(testTDF())
 	if err != nil {
@@ -109,4 +174,25 @@ func testTDF() []byte {
 	binary.LittleEndian.PutUint16(record[25+int('A'-33)*2:], 0)
 	copy(record[recordSize:], glyph)
 	return append(data, record...)
+}
+
+func testTDFWithRepeatedFontRecords(count int, glyphData []byte, fontType byte) []byte {
+	data := append([]byte(nil), testTDF()[:tdfHeaderSize]...)
+	for recordIndex := 0; recordIndex < count; recordIndex++ {
+		record := make([]byte, tdfRecordSize+len(glyphData))
+		copy(record[:4], tdfRecordTag)
+		record[4] = 4
+		copy(record[5:9], "Tiny")
+		record[21] = fontType
+		binary.LittleEndian.PutUint16(record[23:25], uint16(len(glyphData)))
+		for i := 0; i < tdfGlyphCount; i++ {
+			binary.LittleEndian.PutUint16(record[25+i*2:], 0xffff)
+		}
+		if len(glyphData) > 0 {
+			binary.LittleEndian.PutUint16(record[25+int('A'-33)*2:], 0)
+		}
+		copy(record[tdfRecordSize:], glyphData)
+		data = append(data, record...)
+	}
+	return data
 }

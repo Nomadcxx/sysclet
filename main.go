@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-const maxTDFBytes = 64 << 20
-
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
