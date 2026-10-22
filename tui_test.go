@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"go/format"
 	"os"
 	"os/exec"
@@ -426,6 +427,7 @@ func TestExportF5CopiesPlainSyscGreetSnippet(t *testing.T) {
 	model := newEditorModel()
 	model.openExport()
 	model.slotInput.SetValue("ascii_3")
+	model.slotAuto = false
 	var copied string
 	model.writeClipboard = func(value string) error {
 		copied = value
@@ -906,22 +908,62 @@ func TestExportViewFitsCompactTerminal(t *testing.T) {
 }
 
 func TestCompactExportKeepsPermissionRecoveryGuidance(t *testing.T) {
-	model := newEditorModel()
-	model.width, model.height = 42, 14
-	model.mode = modeExport
-	model.exportFormat = exportANSI
-	model.exportFocus = exportFocusFormat
-	model.status = formatExportError(os.ErrPermission)
+	for _, format := range []exportFormat{exportANSI, exportSyscGreet} {
+		for _, height := range []int{8, 10} {
+			t.Run(fmt.Sprintf("%s/%d rows", format, height), func(t *testing.T) {
+				model := newEditorModel()
+				model.width, model.height = 42, height
+				model.mode = modeExport
+				model.exportFormat = format
+				model.exportFocus = exportFocusFormat
+				model.status = formatExportError(os.ErrPermission)
 
-	view := model.View()
-	if !strings.Contains(view, "sudo") || !strings.Contains(view, "writable path") {
-		t.Fatalf("compact export hid permission recovery guidance:\n%s", view)
+				view := model.View()
+				if !strings.Contains(view, "sudo") || !strings.Contains(view, "writable path") {
+					t.Fatalf("compact export hid permission recovery guidance:\n%s", view)
+				}
+				if !strings.Contains(view, "Ctrl+S") {
+					t.Fatalf("compact export hid its save key:\n%s", view)
+				}
+				if lines := strings.Split(view, "\n"); len(lines) > model.height {
+					t.Fatalf("compact export uses %d rows, terminal has %d", len(lines), model.height)
+				}
+			})
+		}
 	}
-	if !strings.Contains(view, "Ctrl+S") {
-		t.Fatalf("compact export hid its save key:\n%s", view)
+}
+
+func TestExportAutoSlotRescansProfileBeforeSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "greeter.conf")
+	if err := os.WriteFile(path, []byte("ascii_1=\"\"\"\nfirst\n\"\"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if lines := strings.Split(view, "\n"); len(lines) > model.height {
-		t.Fatalf("compact export uses %d rows, terminal has %d", len(lines), model.height)
+
+	model := newEditorModel()
+	font := Font{Name: "Tiny"}
+	font.Glyphs[int('A'-33)] = [][]Cell{{{Rune: 'A', Color: 0x14}}}
+	model.font = font
+	if err := model.setText("A"); err != nil {
+		t.Fatal(err)
+	}
+	model.profilePathInput.SetValue(path)
+	model.openExport()
+	if got := model.slotInput.Value(); got != "ascii_2" {
+		t.Fatalf("initial auto slot = %q, want ascii_2", got)
+	}
+
+	updatedByAnotherApp := "ascii_1=\"\"\"\nfirst\n\"\"\"\nascii_2=\"\"\"\nexternal slot\n\"\"\"\n"
+	if err := os.WriteFile(path, []byte(updatedByAnotherApp), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyCtrlS}))
+
+	profile, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(profile), "external slot") || !strings.Contains(string(profile), "ascii_3=\"\"\"\n") {
+		t.Fatalf("save did not preserve the newly added slot and append ascii_3: %q", profile)
 	}
 }
 

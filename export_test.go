@@ -38,7 +38,7 @@ func TestExportDisplayHints(t *testing.T) {
 	}{
 		{exportSyscGreet, "Select the Beams effect in sysc-greet to animate this profile art."},
 		{exportANSI, "Display in a terminal: cat '/tmp/my header.ans' or less -R '/tmp/my header.ans'"},
-		{exportTXT, "Plain text only; ANSI colors are removed. Choose ANSI to keep them."},
+		{exportTXT, "View in a terminal: cat '/tmp/my header.txt' or less '/tmp/my header.txt' · plain text; ANSI colors are removed."},
 		{exportGO, "Run in a terminal: go run '/tmp/my header.go'"},
 		{exportJS, "Run in a terminal: node '/tmp/my header.js'"},
 		{exportPY, "Run in a terminal: python3 '/tmp/my header.py'"},

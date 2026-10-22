@@ -74,6 +74,31 @@ func TestNextProfileSlotRejectsMalformedProfile(t *testing.T) {
 	}
 }
 
+func TestAppendProfileChoosesCurrentHighestSlot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "greeter.conf")
+	profile := "ascii_1=\"\"\"\nfirst\n\"\"\"\nascii_2=\"\"\"\nadded while export was open\n\"\"\"\n"
+	if err := os.WriteFile(path, []byte(profile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	slot, _, err := AppendProfile(path, "new art")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slot != "ascii_3" {
+		t.Fatalf("appended slot = %q, want ascii_3", slot)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"added while export was open", "ascii_3=\"\"\"\n", "new art"} {
+		if !strings.Contains(string(updated), want) {
+			t.Errorf("appended profile does not contain %q: %q", want, updated)
+		}
+	}
+}
+
 func TestUpdateProfileCreatesMissingProfile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "new-profile.conf")
 	backupPath, err := UpdateProfile(path, "ascii_2", "\x1b[0;31mnew\x1b[0m")

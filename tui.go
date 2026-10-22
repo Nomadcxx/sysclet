@@ -743,8 +743,7 @@ func (m *editorModel) updateExport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.exportFormat != exportSyscGreet {
 			return m, nil
 		}
-		if err := m.syncAutoSlot(); err != nil {
-			m.status = "Cannot choose a new profile slot: " + err.Error()
+		if err := m.refreshAutoSlot(); err != nil {
 			return m, nil
 		}
 		if m.preview == "" {
@@ -818,10 +817,13 @@ func (m *editorModel) syncAutoSlot() error {
 	return nil
 }
 
-func (m *editorModel) refreshAutoSlot() {
+func (m *editorModel) refreshAutoSlot() error {
+	m.autoSlotPath = ""
 	if err := m.syncAutoSlot(); err != nil {
 		m.status = "Cannot choose a new profile slot: " + err.Error()
+		return err
 	}
+	return nil
 }
 
 func (m *editorModel) setExportFocus(index int) tea.Cmd {
@@ -927,8 +929,20 @@ func (m *editorModel) saveExport() {
 		return
 	}
 	if m.exportFormat == exportSyscGreet {
-		if err := m.syncAutoSlot(); err != nil {
-			m.status = "Cannot choose a new profile slot: " + err.Error()
+		if m.slotAuto {
+			slot, backup, err := AppendProfile(path, m.preview)
+			if err != nil {
+				m.status = formatExportError(err)
+				return
+			}
+			m.slotInput.SetValue(slot)
+			if backup == "" {
+				m.status = fmt.Sprintf("Created profile %s · added %s", path, slot)
+			} else {
+				m.status = fmt.Sprintf("Updated %s · added %s · backup: %s", path, slot, backup)
+			}
+			m.slotAuto = false
+			m.autoSlotPath = path
 			return
 		}
 		backup, err := UpdateProfile(path, strings.TrimSpace(m.slotInput.Value()), m.preview)
@@ -1293,6 +1307,11 @@ func (m *editorModel) compactExportView(width, height int) string {
 	if width < 1 {
 		width = 1
 	}
+	showRecoveryStatus := m.status != "" &&
+		!strings.HasPrefix(m.status, "Copied ") &&
+		!strings.HasPrefix(m.status, "Created profile ") &&
+		!strings.HasPrefix(m.status, "Updated ") &&
+		!strings.HasPrefix(m.status, "Exported ")
 	pathLabel := "Output"
 	if m.exportFormat == exportSyscGreet {
 		pathLabel = "Profile"
@@ -1302,17 +1321,17 @@ func (m *editorModel) compactExportView(width, height int) string {
 
 	tabs := make([]string, 0, len(exportOptions))
 	for _, option := range exportOptions {
-		style := lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("244"))
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 		if option.format == m.exportFormat {
-			style = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("16")).Background(lipgloss.Color("45")).Bold(true)
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color("16")).Background(lipgloss.Color("45")).Bold(true)
 		}
 		tabs = append(tabs, style.Render(string(option.format)))
 	}
-	parts := []string{
-		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("45")).Render("sysclet · Export · " + string(m.exportFormat)),
-		exportFieldLabel("OUTPUT FORMAT", m.exportFocus == exportFocusFormat),
-		lipgloss.NewStyle().Width(width).Render(strings.Join(tabs, " ")),
+	parts := []string{lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("45")).Render("sysclet · Export · " + string(m.exportFormat))}
+	if !showRecoveryStatus || height >= 11 {
+		parts = append(parts, exportFieldLabel("OUTPUT FORMAT", m.exportFocus == exportFocusFormat))
 	}
+	parts = append(parts, lipgloss.NewStyle().Width(width).Render(strings.Join(tabs, " ")))
 	if m.exportFormat == exportSyscGreet {
 		profileHint := "No compositor detected · Ctrl+O choose profile"
 		if m.detectedCompositor != "" {
@@ -1320,10 +1339,10 @@ func (m *editorModel) compactExportView(width, height int) string {
 		} else if strings.TrimSpace(m.profilePathInput.Value()) != "" {
 			profileHint = "Sysc-greet profile · Ctrl+O choose another"
 		}
-		parts = append(parts,
-			lipgloss.NewStyle().Width(width).Foreground(lipgloss.Color("244")).Render(profileHint),
-			exportFieldLabel(pathLabel, m.exportFocus == exportFocusPath)+"  "+pathInput.View(),
-		)
+		if !showRecoveryStatus {
+			parts = append(parts, lipgloss.NewStyle().Width(width).Foreground(lipgloss.Color("244")).Render(profileHint))
+		}
+		parts = append(parts, exportFieldLabel(pathLabel, m.exportFocus == exportFocusPath)+"  "+pathInput.View())
 		slotLabel := "New slot · auto"
 		if !m.slotAuto {
 			slotLabel = "Replace slot"
@@ -1334,11 +1353,15 @@ func (m *editorModel) compactExportView(width, height int) string {
 		parts = append(parts, exportFieldLabel(pathLabel, m.exportFocus == exportFocusPath)+"  "+pathInput.View())
 	}
 
-	if hint := exportDisplayHint(m.exportFormat, pathInput.Value()); hint != "" {
+	if showRecoveryStatus {
+		parts = append(parts, lipgloss.NewStyle().Width(width).Foreground(lipgloss.Color("220")).Render(m.status))
+	} else if hint := exportDisplayHint(m.exportFormat, pathInput.Value()); hint != "" {
 		parts = append(parts, lipgloss.NewStyle().Width(width).Foreground(lipgloss.Color("45")).Render(hint))
 	}
 	help := "Tab formats · Enter destination · Ctrl+O/B browse · Ctrl+S save · Esc back"
-	if m.exportFocus == exportFocusPath {
+	if showRecoveryStatus {
+		help = "Ctrl+S retry · Esc back"
+	} else if m.exportFocus == exportFocusPath {
 		help = "Tab fields · Enter next · Ctrl+O/B browse · Ctrl+S save · Esc back"
 	} else if m.exportFocus == exportFocusSlot {
 		help = "Tab fields · Enter next · F5 copy · Ctrl+S save · Esc back"
@@ -1346,7 +1369,7 @@ func (m *editorModel) compactExportView(width, height int) string {
 		help += " · F5 copy"
 	}
 	helpView := lipgloss.NewStyle().Width(width).Foreground(lipgloss.Color("244")).Render(help)
-	if m.status != "" {
+	if m.status != "" && !showRecoveryStatus {
 		base := append(append([]string(nil), parts...), helpView)
 		statusLines := height - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, base...))
 		if statusLines > 0 {

@@ -76,9 +76,6 @@ func exportDisplayHint(format exportFormat, path string) string {
 	if format == exportSyscGreet {
 		return "Select the Beams effect in sysc-greet to animate this profile art."
 	}
-	if format == exportTXT {
-		return "Plain text only; ANSI colors are removed. Choose ANSI to keep them."
-	}
 	if strings.TrimSpace(path) == "" {
 		path = "header"
 	}
@@ -86,6 +83,8 @@ func exportDisplayHint(format exportFormat, path string) string {
 	switch format {
 	case exportANSI:
 		return "Display in a terminal: cat " + file + " or less -R " + file
+	case exportTXT:
+		return "View in a terminal: cat " + file + " or less " + file + " · plain text; ANSI colors are removed."
 	case exportGO:
 		return "Run in a terminal: go run " + file
 	case exportJS:
