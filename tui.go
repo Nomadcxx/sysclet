@@ -918,17 +918,6 @@ func colorLabel(color int) string {
 	return ansiPaletteNames[color]
 }
 
-func (m *editorModel) previewAlignment() lipgloss.Position {
-	switch m.alignment {
-	case alignmentLeft:
-		return lipgloss.Left
-	case alignmentRight:
-		return lipgloss.Right
-	default:
-		return lipgloss.Center
-	}
-}
-
 func (m *editorModel) modalView(title, content, help string) string {
 	width := m.width
 	height := m.height
