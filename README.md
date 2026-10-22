@@ -8,7 +8,7 @@
 ![Interface](https://img.shields.io/badge/interface-TUI%20%2B%20CLI-3434ff.svg)
 [![Go](https://img.shields.io/badge/Go-1.20+-00c9e8.svg)](https://go.dev/)
 
-[Features](#features) · [Quick Start](#quick-start) · [TUI](#tui) · [CLI](#cli) · [Font Catalog](#font-catalog) · [sysc-greet Export](#sysc-greet-export) · [License](#license)
+[Features](#features) · [Quick Start](#quick-start) · [TUI](#tui) · [CLI](#cli) · [Font Catalog](#font-catalog) · [sysc-greet Export](#sysc-greet-export) · [Development](#development) · [License](#license)
 
 <img src="assets/sysclet-showcase.webp" alt="sysclet generates SYSC, SEE, YOU, IN, SPACE, and COWBOY with TheDraw fonts, then exports a header to sysc-greet" width="100%" />
 
@@ -104,16 +104,18 @@ The TUI starts with the sysc-greet format. Its snippet preview shows the selecte
 
 The other export formats match BIT: **TXT**, **GO**, **JS**, **PY**, **RS**, and **SH**. Select a format in the export view, enter an output path, and press `Ctrl+S`. sysclet adds the format extension when needed and backs up an existing file before replacing it.
 
-sysclet does not request elevated privileges. User-owned profile paths can be saved normally; root-owned system paths require running sysclet with `sudo`. Existing file modes are preserved when updated, and a new profile is created for the invoking user with mode `0644` limited by the system umask. Run the TUI as root only when editing a system-owned profile:
+sysclet does not request elevated privileges. User-owned profile paths can be saved normally; root-owned system paths require running sysclet with `sudo`. Existing permission bits are preserved when updated, and a new file belongs to the user running sysclet with mode `0644` limited by the system umask. Run the TUI as root only when editing a system-owned profile:
 
 ```sh
-sudo "$(command -v sysclet)"
+sudo "$HOME/.local/bin/sysclet"
 ```
+
+If you installed sysclet elsewhere, replace this path with the installed binary path.
 
 Run this command to update a system profile as root:
 
 ```sh
-sudo "$(command -v sysclet)" export --font-name Bleach --slot ascii_1 \
+sudo "$HOME/.local/bin/sysclet" export --font-name Bleach --slot ascii_1 \
   --config /usr/share/sysc-greet/ascii_configs/sysc-compositor.conf COWBOY
 ```
 
@@ -122,6 +124,17 @@ sysc-greet maps the ANSI colors through the selected theme.
 ## Font Catalog
 
 sysclet bundles 3,481 named TDF records from 36 font packs distributed through TAAG's [TheDraw font sets](https://patorjk.com/software/taag/tdf-font-sets/). The TUI and CLI work offline. Individual records can have different authors and terms; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for source and license details. The GPL license for sysclet's code does not apply to those font files.
+
+## Development
+
+The project targets Go 1.20 or newer. Run the tests and vet before submitting changes:
+
+```sh
+go test ./...
+go vet ./...
+```
+
+See [docs/design.md](docs/design.md) for package responsibilities, data flow, and file-update guarantees.
 
 ## License
 

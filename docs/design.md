@@ -1,36 +1,31 @@
-# sysclet design
+# Architecture
 
-sysclet is a Go TUI and CLI for generating ANSI headers from TheDraw TDF fonts. It reads the glyph and color attributes stored in each font cell, then emits ANSI SGR output for terminals or a paste-ready sysc-greet profile entry.
+sysclet generates ANSI headers from TheDraw TDF fonts. The root Go package owns the CLI, editor, font parser, bundled catalog, and export logic. `cmd/installer` is a separate user-local installer, launched by `install.sh`.
 
-## Scope
+## Runtime paths
 
-- Embed 3,481 named records from 36 TheDraw TDF packs and accept additional local TDF files.
-- Search font names in the TUI; allow a name selection when a local file contains multiple records.
-- Edit text in the TUI and render each keystroke immediately.
-- Render to stdout with the TDF foreground and background colors preserved per cell.
-- Allow TUI alignment and explicit foreground/background overrides; keep TDF colors as the default.
-- Export an `ascii_N` entry with `ansi_style=true` and escaped `\\033` sequences for sysc-greet.
-- By default, print the entry for copying. If the user supplies a profile path, update only the selected slot, save a backup, and replace the profile safely.
-- Keep the TUI in the root `main` package and use Bubble Tea, Bubbles, and Lip Gloss for terminal input, local file selection, and layout.
-- Do not infer colors from glyph characters.
+| File | Responsibility |
+| --- | --- |
+| `main.go` | Dispatch `tui`, `render`, and `export`; load bundled or local fonts. |
+| `tdf.go` | Validate TDF records, decode CP437 glyph cells and colors, and render ANSI lines. |
+| `tdf_catalog.go` | Read the embedded catalog and decompress only the selected font pack. |
+| `tui.go` | Own editor state, input modes, live preview, font selection, and export interaction. |
+| `export.go` | Generate plain text, code samples, and output files for the selected export format. |
+| `config.go` | Format sysc-greet snippets and update profile slots. |
+| `cmd/installer` | Show install progress and run `go install` into the current user's `~/.local/bin`. |
 
-sysclet does not implement background effects. AK-47 and other effects belong to sysc-greet.
+The rendering path is `TDF record → Font glyph rows → ANSI output`. Each record has slots for 94 printable ASCII characters, from `!` through `~`; some slots may be empty. A cell keeps its CP437 character and, for color fonts, its VGA attribute: the low four bits select the foreground and the next three select the background. The renderer applies the font's letter spacing, reserves four columns for a word space, maps VGA colors to ANSI, and resets SGR at the end of each line. TDF colors remain the default; the editor can override foreground and background colors and align the rendered block. Colors come from TDF attributes, not from visual glyphs such as `░`, `▒`, or `█`.
 
-The bundled font files are third-party assets with terms separate from the sysclet code; see `THIRD-PARTY-NOTICES.md`.
+The bundled catalog maps font names to records in compressed packs. Local `.tdf` files use the same parser and can contain multiple named records. The parser bounds input size, record count, and decoded glyph data before returning fonts.
 
-## TDF rendering
+The `render` command writes terminal-ready ANSI output. The `export` command prints a sysc-greet profile snippet or updates a profile. In the editor, export also supports plain text and Go, JavaScript, Python, Rust, and shell output. Run `sysclet --help` for the CLI syntax; the [README](../README.md) describes the interactive controls and file formats.
 
-TheDraw font records hold up to 94 printable ASCII glyphs. A cell stores a CP437 byte and, for colored fonts, a color attribute. The low four attribute bits select the foreground; the next three select the background. Output maps those VGA color indexes to ANSI's standard and bright foreground codes and standard background codes. Fonts without per-cell color attributes use their stored default attribute.
+## File updates
 
-Render each input character as rows of cells, use the font's spacing value between glyphs, reserve four columns for a word space, and reset SGR at each line end. Preserve the glyph's cell colors by default; only apply explicit TUI foreground or background overrides. Never assign colors based on characters such as `░`, `▒`, or `█`.
+Profile and generated-file updates inspect the final path component with `Lstat` and reject symlinks and non-regular files. When replacing an existing file, sysclet creates an exclusive backup, writes and syncs a temporary file in the same directory, compares the current contents with the bytes it read earlier, and renames the temporary file into place. The comparison can detect an earlier edit but does not prevent a concurrent change after the check. Updates preserve the existing permission bits. New profile and export files are owned by the user running sysclet and request mode `0644`, subject to the process umask.
 
-## CLI shape
+Updating a sysc-greet profile sets `ansi_style=true` and replaces the selected `ascii_N` block. Existing profile paths must be writable by the current user; system-owned profiles require running sysclet with elevated privileges.
 
-```text
-sysclet render --font FONT.tdf [--font-name NAME] TEXT
-sysclet export --font FONT.tdf [--font-name NAME] --slot ascii_N [--config PROFILE] TEXT
-```
+## Installer and assets
 
-`render` writes actual ESC bytes. `export` writes config text using readable `\\033` escapes. Updating a profile backs up the original before atomically replacing the selected slot and enabling ANSI style; a missing path creates a minimal profile. System-owned paths require the caller to run sysclet with elevated privileges.
-
-Running `sysclet` or `sysclet tui` opens the interactive editor. `sysclet render` and `sysclet export` remain available for scripts.
+`install.sh` requires Go 1.20 or newer, network access, and an interactive terminal. It refuses root execution; the installer writes to the invoking user's `~/.local/bin` and does not call a package manager. The bundled TDF files are third-party assets with terms separate from sysclet's GPL-3.0-only code; see [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md).
