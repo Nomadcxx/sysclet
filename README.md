@@ -36,7 +36,7 @@ Install for your user on Linux distributions with Go and POSIX `sh`:
 curl -fsSL https://raw.githubusercontent.com/Nomadcxx/sysclet/main/install.sh | sh
 ```
 
-The installer shows the binary destination and streams Go's build output. It installs sysclet to `~/.local/bin/sysclet`; the TDF fonts are bundled in the binary. It needs Go 1.20+ and network access, and does not use `sudo` or a distro package manager. If `~/.local/bin` is not on your `PATH`, run `~/.local/bin/sysclet`.
+Run the installer from an interactive terminal as your user, without `sudo`. It needs Go 1.20+ and network access, and installs sysclet to `~/.local/bin/sysclet` without using a distro package manager. The TDF fonts are bundled in the binary. If `~/.local/bin` is not on your `PATH`, run `~/.local/bin/sysclet`.
 
 You can install directly with Go instead:
 
@@ -129,7 +129,18 @@ sysclet bundles 3,481 named TDF records from 36 font packs distributed through T
 
 ## Development
 
-The project targets Go 1.20 or newer. Run the tests and vet before submitting changes:
+To build and install from a source checkout, use Go 1.20 or newer:
+
+```sh
+git clone https://github.com/Nomadcxx/sysclet.git
+cd sysclet
+mkdir -p "$HOME/.local/bin"
+go build -o "$HOME/.local/bin/sysclet" .
+```
+
+The first build downloads Go modules. The font catalog is embedded in the binary, so running sysclet does not require Go or network access.
+
+Run the tests and vet before submitting changes:
 
 ```sh
 go test ./...
