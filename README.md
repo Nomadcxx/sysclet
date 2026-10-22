@@ -10,7 +10,7 @@
 
 [Features](#features) · [Quick Start](#quick-start) · [TUI](#tui) · [CLI](#cli) · [Font Catalog](#font-catalog) · [sysc-greet Export](#sysc-greet-export) · [Development](#development) · [License](#license)
 
-<img src="assets/sysclet-showcase.webp" alt="sysclet generates SYSC, SEE, YOU, IN, SPACE, and COWBOY with TheDraw fonts, then exports a header to sysc-greet" width="100%" />
+<img src="assets/sysclet-showcase.webp" alt="Animated sysclet editor and export screens showing compositor detection, an automatic sysc-greet slot, and ANSI display guidance" width="100%" />
 
 </div>
 
