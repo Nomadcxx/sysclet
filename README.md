@@ -134,6 +134,8 @@ go test ./...
 go vet ./...
 ```
 
+GitHub Actions runs both commands on Go 1.20 and the current stable release for pull requests and pushes to `main`.
+
 See [docs/design.md](docs/design.md) for package responsibilities, data flow, and file-update guarantees.
 
 ## License

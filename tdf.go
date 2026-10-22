@@ -300,13 +300,6 @@ func writeANSIline(output *strings.Builder, cells []Cell, foregroundOverride, ba
 	output.WriteString("\x1b[0m")
 }
 
-func colorSGR(attribute byte) string {
-	foreground, background := ansiColors(attribute, -1, -1)
-	var output strings.Builder
-	writeColorSGR(&output, foreground, background)
-	return output.String()
-}
-
 func ansiColors(attribute byte, foregroundOverride, backgroundOverride int) (int, int) {
 	ansiOrder := [...]int{0, 4, 2, 6, 1, 5, 3, 7}
 	foreground := int(attribute & 0x0f)
