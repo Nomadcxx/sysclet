@@ -10,7 +10,7 @@
 
 [Features](#features) · [Quick Start](#quick-start) · [TUI](#tui) · [CLI](#cli) · [Font Catalog](#font-catalog) · [sysc-greet Export](#sysc-greet-export) · [Development](#development) · [License](#license)
 
-<img src="assets/sysclet-showcase.webp" alt="Animated sysclet editor and export screens showing compositor detection, an automatic sysc-greet slot, and ANSI display guidance" width="100%" />
+<img src="assets/sysclet-showcase.webp" alt="Animated editor tour: SEE, YOU, SPACE, and COWBOY, then lowercase sysclet in 13 TDF fonts" width="100%" />
 
 </div>
 
