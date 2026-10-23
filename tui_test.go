@@ -68,6 +68,17 @@ func TestFontControlSearchesBundledCatalogAndLoadsChoice(t *testing.T) {
 	}
 }
 
+func TestFontChoiceFilterCanTypeJAndK(t *testing.T) {
+	for _, char := range []rune{'j', 'k'} {
+		model := newEditorModel()
+		model.openFontPicker()
+		model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{char}}))
+		if got := model.fontFilter.Value(); got != string(char) {
+			t.Errorf("font filter after typing %q = %q, want the typed character", char, got)
+		}
+	}
+}
+
 func TestBundledFontChooserCanOpenLocalTDFPicker(t *testing.T) {
 	model := newEditorModel()
 	model.openFontPicker()

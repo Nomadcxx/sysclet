@@ -636,11 +636,11 @@ func (m *editorModel) updateFontChoice(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = ""
 	case "ctrl+o":
 		return m.openLocalFontPicker()
-	case "up", "k":
+	case "up":
 		if m.fontIndex > 0 {
 			m.fontIndex--
 		}
-	case "down", "j":
+	case "down":
 		if m.fontIndex+1 < len(m.fontChoices) {
 			m.fontIndex++
 		}
