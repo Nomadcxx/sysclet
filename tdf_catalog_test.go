@@ -11,8 +11,8 @@ func TestBundledFontCatalogMatchesEveryEmbeddedRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 3481 {
-		t.Fatalf("catalog contains %d fonts, want 3481", len(catalog))
+	if len(catalog) != 4359 {
+		t.Fatalf("catalog contains %d fonts, want 4359", len(catalog))
 	}
 
 	byPack := make(map[string][]fontCatalogEntry)
@@ -24,8 +24,8 @@ func TestBundledFontCatalogMatchesEveryEmbeddedRecord(t *testing.T) {
 		seenNames[entry.Name] = true
 		byPack[entry.Pack] = append(byPack[entry.Pack], entry)
 	}
-	if len(byPack) != 36 {
-		t.Fatalf("catalog references %d packs, want 36", len(byPack))
+	if len(byPack) != 47 {
+		t.Fatalf("catalog references %d packs, want 47", len(byPack))
 	}
 	for pack, entries := range byPack {
 		fonts, err := loadBundledFontPack(pack)

@@ -126,7 +126,7 @@ sysc-greet maps the ANSI colors through the selected theme. The profile stores t
 
 ## Font Catalog
 
-sysclet bundles 3,481 named TDF records from 36 font packs distributed through TAAG's [TheDraw font sets](https://patorjk.com/software/taag/tdf-font-sets/). The TUI and CLI work offline. Individual records can have different authors and terms; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for source and license details. The GPL license for sysclet's code does not apply to those font files.
+sysclet bundles 4,359 named TDF records from 47 font packs: 3,481 distributed through TAAG's [TheDraw font sets](https://patorjk.com/software/taag/tdf-font-sets/), 723 more from [Phosphor](https://github.com/0xc1c4da/phosphor)'s TheDraw collection, and 155 converted from [sysc-Go](https://github.com/Nomadcxx/sysc-Go)'s BIT fonts. `scripts/import_fonts.py` rebuilds the Phosphor and BIT packs from their sources. The TUI and CLI work offline. Individual records can have different authors and terms; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for source and license details. The GPL license for sysclet's code does not apply to those font files.
 
 ## Development
 

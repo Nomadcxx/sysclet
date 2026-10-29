@@ -53,14 +53,14 @@ func TestNewEditorStartsWithBundledFont(t *testing.T) {
 func TestFontControlSearchesBundledCatalogAndLoadsChoice(t *testing.T) {
 	model := newEditorModel()
 	model.openFontPicker()
-	if model.mode != modeFontChoice || !model.fontChoiceFromCatalog || len(model.fontChoices) != 3481 {
+	if model.mode != modeFontChoice || !model.fontChoiceFromCatalog || len(model.fontChoices) != 4359 {
 		t.Fatalf("font chooser state = mode %v, catalog=%v, choices=%d; want all bundled fonts", model.mode, model.fontChoiceFromCatalog, len(model.fontChoices))
 	}
 
-	model.fontFilter.SetValue("FinalDestiny")
+	model.fontFilter.SetValue("FinalDestiny2")
 	model.filterFontChoices()
 	if len(model.fontChoices) != 1 {
-		t.Fatalf("FinalDestiny search returned %d results, want actual pack record FinalDestiny2", len(model.fontChoices))
+		t.Fatalf("FinalDestiny2 search returned %d results, want actual pack record FinalDestiny2", len(model.fontChoices))
 	}
 	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyEnter}))
 	if model.font.Name != "FinalDestiny2" {
