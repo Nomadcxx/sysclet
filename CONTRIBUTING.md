@@ -1,7 +1,7 @@
 # Contributing
 
-The command line tool of the organisation: a terminal file manager and text editor. This document
-says what a change has to clear and where the work is tracked.
+sysclet turns text into ANSI headers with TheDraw fonts and exports them to sysc-greet, sysc-walls
+and sysc-terminal. This document says what a change has to clear and where the work is tracked.
 
 The rules of the organisation are written down in the shell repository, in `AGENTS.md`.
 

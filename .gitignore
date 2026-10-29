@@ -1,0 +1,6 @@
+# Local builds
+/sysclet
+/dist/
+
+# Plans, designs and handovers live only in the primary checkout (CONTRIBUTING.md).
+docs/plans/
