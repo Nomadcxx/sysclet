@@ -37,8 +37,11 @@ jobs:
             GOOS=linux GOARCH="$arch" go build -trimpath \
               -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
               -o "dist/sysclet-linux-$arch" .
+            GOOS=linux GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w" \
+              -o "dist/sysclet-installer-linux-$arch" ./cmd/installer
           done
-          (cd dist && sha256sum sysclet-linux-* > SHA256SUMS)
+          (cd dist && sha256sum sysclet-linux-* sysclet-installer-linux-* > SHA256SUMS)
 
       - name: Publish release
         env:

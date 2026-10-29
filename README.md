@@ -32,13 +32,13 @@ The program embeds its font data. Clipboard copying uses the system clipboard ut
 
 ## Quick Start
 
-Install for your user on Linux distributions with Go and POSIX `sh`:
+Install for your user on Linux with POSIX `sh`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Nomadcxx/sysclet/main/install.sh | sh
 ```
 
-Run the installer from an interactive terminal as your user, without `sudo`. It needs Go 1.21 or newer and network access (Go fetches the 1.26.10 toolchain the module declares), and installs sysclet to `~/.local/bin/sysclet` without using a distro package manager. The TDF fonts are bundled in the binary. If `~/.local/bin` is not on your `PATH`, run `~/.local/bin/sysclet`.
+Run the installer from an interactive terminal as your user, without `sudo`. On Linux amd64 and arm64, the script downloads installer and sysclet binaries from the latest release. It checks each against `SHA256SUMS` before installing sysclet to `~/.local/bin/sysclet`. This path needs `curl` and `sha256sum`. If the release has no installer binary or your architecture is unsupported, the script falls back to Go 1.21 or newer. The TDF fonts are bundled in the binary. If `~/.local/bin` is not on your `PATH`, run `~/.local/bin/sysclet`.
 
 You can install directly with Go instead:
 
@@ -54,7 +54,7 @@ yay -S sysclet
 yay -S sysclet-git
 ```
 
-Each GitHub release also carries static `sysclet-linux-amd64` and `sysclet-linux-arm64` binaries with a `SHA256SUMS` file.
+New releases built by the release workflow include static `sysclet-linux-amd64` and `sysclet-linux-arm64` app binaries, plus matching `sysclet-installer-linux-*` binaries. `SHA256SUMS` covers all four files.
 
 Run `sysclet` to open the editor.
 
