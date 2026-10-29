@@ -61,6 +61,9 @@ const (
 
 const alignedWidth = 80
 
+// ponytail: Retain at most eight parsed packs to bound memory; raise this cap only if profiling shows more reuse is needed.
+const fontPackCacheLimit = 8
+
 var ansiPaletteNames = [...]string{
 	"Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",
 	"Bright Black", "Bright Red", "Bright Green", "Bright Yellow",
@@ -80,10 +83,12 @@ type editorModel struct {
 	preview               string
 	font                  Font
 	fontCatalog           []fontCatalogEntry
+	fontPackCache         fontPackCache
 	fonts                 []Font
 	fontChoices           []int
 	fontPath              string
 	fontIndex             int
+	fontPreview           string
 	fontChoiceFromCatalog bool
 	fontPickerReturnMode  editorMode
 	selectedControl       int
@@ -99,6 +104,48 @@ type editorModel struct {
 	width                 int
 	height                int
 	status                string
+}
+
+type fontPackCache struct {
+	packs map[string][]Font
+	order []string
+}
+
+func (c *fontPackCache) load(entry fontCatalogEntry) (Font, error) {
+	if fonts, ok := c.packs[entry.Pack]; ok {
+		c.touch(entry.Pack)
+		return bundledFontFromPack(fonts, entry)
+	}
+
+	fonts, err := loadBundledFontPack(entry.Pack)
+	if err != nil {
+		return Font{}, err
+	}
+	if c.packs == nil {
+		c.packs = make(map[string][]Font)
+	}
+	if len(c.order) == fontPackCacheLimit {
+		delete(c.packs, c.order[0])
+		c.order = c.order[1:]
+	}
+	c.packs[entry.Pack] = fonts
+	c.order = append(c.order, entry.Pack)
+	return bundledFontFromPack(fonts, entry)
+}
+
+func (c *fontPackCache) touch(pack string) {
+	for i, cached := range c.order {
+		if cached == pack {
+			c.order = append(c.order[:i], c.order[i+1:]...)
+			c.order = append(c.order, pack)
+			return
+		}
+	}
+}
+
+func (c *fontPackCache) clear() {
+	c.packs = nil
+	c.order = nil
 }
 
 func newEditorModel() *editorModel {
@@ -383,6 +430,7 @@ func (m *editorModel) cycleFont(step int) {
 }
 
 func (m *editorModel) openFontPicker() (tea.Model, tea.Cmd) {
+	m.fontPackCache.clear()
 	catalog, err := loadBundledFontCatalog()
 	if err != nil {
 		m.status = "font catalog: " + err.Error()
@@ -400,6 +448,7 @@ func (m *editorModel) openFontPicker() (tea.Model, tea.Cmd) {
 	m.fontFilter.SetValue("")
 	m.mode = modeFontChoice
 	m.status = ""
+	m.refreshFontPreview()
 	return m, m.fontFilter.Focus()
 }
 
@@ -605,6 +654,7 @@ func (m *editorModel) updateFontPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			m.mode = modeNormal
 			m.status = "font: " + err.Error()
+			m.fontPackCache.clear()
 			return m, command
 		}
 		m.fontPath = path
@@ -615,6 +665,7 @@ func (m *editorModel) updateFontPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(fonts) == 1 {
 			m.selectFont(0)
 		} else {
+			m.fontPackCache.clear()
 			m.fontFilter.SetValue("")
 			m.fontChoices = make([]int, len(fonts))
 			for i := range fonts {
@@ -622,6 +673,7 @@ func (m *editorModel) updateFontPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.mode = modeFontChoice
 			m.status = "This file contains multiple fonts"
+			m.refreshFontPreview()
 			return m, tea.Batch(command, m.fontFilter.Focus())
 		}
 	}
@@ -634,15 +686,18 @@ func (m *editorModel) updateFontChoice(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.fontFilter.Blur()
 		m.mode = modeNormal
 		m.status = ""
+		m.fontPackCache.clear()
 	case "ctrl+o":
 		return m.openLocalFontPicker()
 	case "up":
 		if m.fontIndex > 0 {
 			m.fontIndex--
+			m.refreshFontPreview()
 		}
 	case "down":
 		if m.fontIndex+1 < len(m.fontChoices) {
 			m.fontIndex++
+			m.refreshFontPreview()
 		}
 	case "enter":
 		if len(m.fontChoices) > 0 {
@@ -674,6 +729,7 @@ func (m *editorModel) filterFontChoices() {
 		}
 	}
 	m.fontIndex = 0
+	m.refreshFontPreview()
 }
 
 func (m *editorModel) selectFont(index int) {
@@ -683,7 +739,7 @@ func (m *editorModel) selectFont(index int) {
 			return
 		}
 		var err error
-		font, err = loadBundledFontEntry(m.fontCatalog[index])
+		font, err = m.fontPackCache.load(m.fontCatalog[index])
 		if err != nil {
 			m.status = "font: " + err.Error()
 			return
@@ -697,12 +753,46 @@ func (m *editorModel) selectFont(index int) {
 	}
 	m.fontIndex = index
 	m.font = font
+	m.fontPackCache.clear()
 	m.fontFilter.Blur()
 	m.mode = modeNormal
 	_ = m.setText(m.text)
 	if m.status == "" {
 		m.status = fmt.Sprintf("Loaded %s · %s", filepath.Base(m.fontPath), m.font.Name)
 	}
+}
+
+func (m *editorModel) refreshFontPreview() {
+	m.fontPreview = ""
+	if m.fontIndex < 0 || m.fontIndex >= len(m.fontChoices) {
+		return
+	}
+
+	choice := m.fontChoices[m.fontIndex]
+	var font Font
+	if m.fontChoiceFromCatalog {
+		if choice < 0 || choice >= len(m.fontCatalog) {
+			return
+		}
+		var err error
+		font, err = m.fontPackCache.load(m.fontCatalog[choice])
+		if err != nil {
+			m.fontPreview = "Preview unavailable: " + err.Error()
+			return
+		}
+	} else {
+		if choice < 0 || choice >= len(m.fonts) {
+			return
+		}
+		font = m.fonts[choice]
+	}
+
+	preview, err := font.RenderWithColors(m.text, m.foreground, m.background)
+	if err != nil {
+		m.fontPreview = "Preview unavailable: " + err.Error()
+		return
+	}
+	m.fontPreview = preview
 }
 
 func (m *editorModel) updateExport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1174,6 +1264,9 @@ func (m *editorModel) modalView(title, content, help string) string {
 }
 
 func (m *editorModel) fontChoiceView(width, height int) string {
+	contentWidth := minInt(92, width-12)
+	listWidth := (contentWidth - 2) / 2
+	previewWidth := contentWidth - listWidth - 2
 	rows := maxInt(1, height-14)
 	start := 0
 	if m.fontIndex >= rows {
@@ -1195,6 +1288,7 @@ func (m *editorModel) fontChoiceView(width, height int) string {
 		} else {
 			name = m.fonts[m.fontChoices[i]].Name
 		}
+		name = ansi.Truncate(name, maxInt(1, listWidth-2), "…")
 		fmt.Fprintf(&choices, "%s%s\n", marker, name)
 	}
 	if end < len(m.fontChoices) {
@@ -1203,7 +1297,28 @@ func (m *editorModel) fontChoiceView(width, height int) string {
 	if len(m.fontChoices) == 0 {
 		choices.WriteString("No font names match this filter.")
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, "Filter: "+m.fontFilter.View(), "", choices.String())
+	selectedName := ""
+	if m.fontIndex >= 0 && m.fontIndex < len(m.fontChoices) {
+		choice := m.fontChoices[m.fontIndex]
+		if m.fontChoiceFromCatalog && choice >= 0 && choice < len(m.fontCatalog) {
+			selectedName = m.fontCatalog[choice].Name
+		} else if !m.fontChoiceFromCatalog && choice >= 0 && choice < len(m.fonts) {
+			selectedName = m.fonts[choice].Name
+		}
+	}
+	preview := m.fontPreview
+	if preview == "" {
+		preview = "No font selected"
+	}
+	preview = clipExportPreview(preview, previewWidth, maxInt(1, rows-1))
+	previewView := lipgloss.NewStyle().Width(previewWidth).Render(lipgloss.JoinVertical(
+		lipgloss.Left,
+		"Preview: "+selectedName,
+		preview,
+	))
+	choiceView := lipgloss.NewStyle().Width(listWidth).Render(choices.String())
+	columns := lipgloss.JoinHorizontal(lipgloss.Top, choiceView, "  ", previewView)
+	content := lipgloss.JoinVertical(lipgloss.Left, "Filter: "+m.fontFilter.View(), "", columns)
 	title := "Choose a font in " + filepath.Base(m.fontPath)
 	help := "Type to filter · ↑/↓ navigate · Enter load · Esc back"
 	if m.fontChoiceFromCatalog {
