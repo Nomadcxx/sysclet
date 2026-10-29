@@ -61,6 +61,9 @@ const (
 
 const alignedWidth = 80
 
+// ponytail: Retain at most eight parsed packs to bound memory; raise this cap only if profiling shows more reuse is needed.
+const fontPackCacheLimit = 8
+
 var ansiPaletteNames = [...]string{
 	"Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",
 	"Bright Black", "Bright Red", "Bright Green", "Bright Yellow",
@@ -80,6 +83,7 @@ type editorModel struct {
 	preview               string
 	font                  Font
 	fontCatalog           []fontCatalogEntry
+	fontPackCache         fontPackCache
 	fonts                 []Font
 	fontChoices           []int
 	fontPath              string
@@ -100,6 +104,48 @@ type editorModel struct {
 	width                 int
 	height                int
 	status                string
+}
+
+type fontPackCache struct {
+	packs map[string][]Font
+	order []string
+}
+
+func (c *fontPackCache) load(entry fontCatalogEntry) (Font, error) {
+	if fonts, ok := c.packs[entry.Pack]; ok {
+		c.touch(entry.Pack)
+		return bundledFontFromPack(fonts, entry)
+	}
+
+	fonts, err := loadBundledFontPack(entry.Pack)
+	if err != nil {
+		return Font{}, err
+	}
+	if c.packs == nil {
+		c.packs = make(map[string][]Font)
+	}
+	if len(c.order) == fontPackCacheLimit {
+		delete(c.packs, c.order[0])
+		c.order = c.order[1:]
+	}
+	c.packs[entry.Pack] = fonts
+	c.order = append(c.order, entry.Pack)
+	return bundledFontFromPack(fonts, entry)
+}
+
+func (c *fontPackCache) touch(pack string) {
+	for i, cached := range c.order {
+		if cached == pack {
+			c.order = append(c.order[:i], c.order[i+1:]...)
+			c.order = append(c.order, pack)
+			return
+		}
+	}
+}
+
+func (c *fontPackCache) clear() {
+	c.packs = nil
+	c.order = nil
 }
 
 func newEditorModel() *editorModel {
@@ -384,6 +430,7 @@ func (m *editorModel) cycleFont(step int) {
 }
 
 func (m *editorModel) openFontPicker() (tea.Model, tea.Cmd) {
+	m.fontPackCache.clear()
 	catalog, err := loadBundledFontCatalog()
 	if err != nil {
 		m.status = "font catalog: " + err.Error()
@@ -607,6 +654,7 @@ func (m *editorModel) updateFontPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			m.mode = modeNormal
 			m.status = "font: " + err.Error()
+			m.fontPackCache.clear()
 			return m, command
 		}
 		m.fontPath = path
@@ -617,6 +665,7 @@ func (m *editorModel) updateFontPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(fonts) == 1 {
 			m.selectFont(0)
 		} else {
+			m.fontPackCache.clear()
 			m.fontFilter.SetValue("")
 			m.fontChoices = make([]int, len(fonts))
 			for i := range fonts {
@@ -637,6 +686,7 @@ func (m *editorModel) updateFontChoice(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.fontFilter.Blur()
 		m.mode = modeNormal
 		m.status = ""
+		m.fontPackCache.clear()
 	case "ctrl+o":
 		return m.openLocalFontPicker()
 	case "up":
@@ -689,7 +739,7 @@ func (m *editorModel) selectFont(index int) {
 			return
 		}
 		var err error
-		font, err = loadBundledFontEntry(m.fontCatalog[index])
+		font, err = m.fontPackCache.load(m.fontCatalog[index])
 		if err != nil {
 			m.status = "font: " + err.Error()
 			return
@@ -703,6 +753,7 @@ func (m *editorModel) selectFont(index int) {
 	}
 	m.fontIndex = index
 	m.font = font
+	m.fontPackCache.clear()
 	m.fontFilter.Blur()
 	m.mode = modeNormal
 	_ = m.setText(m.text)
@@ -724,7 +775,7 @@ func (m *editorModel) refreshFontPreview() {
 			return
 		}
 		var err error
-		font, err = loadBundledFontEntry(m.fontCatalog[choice])
+		font, err = m.fontPackCache.load(m.fontCatalog[choice])
 		if err != nil {
 			m.fontPreview = "Preview unavailable: " + err.Error()
 			return

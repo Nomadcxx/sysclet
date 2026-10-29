@@ -150,6 +150,52 @@ func TestBundledFontChoiceViewShowsPreview(t *testing.T) {
 	}
 }
 
+func TestFontPackCacheEvictsLeastRecentlyUsedPack(t *testing.T) {
+	catalog, err := loadBundledFontCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entries := make([]fontCatalogEntry, 0, fontPackCacheLimit+1)
+	seen := make(map[string]bool)
+	for _, entry := range catalog {
+		if seen[entry.Pack] {
+			continue
+		}
+		seen[entry.Pack] = true
+		entries = append(entries, entry)
+		if len(entries) == fontPackCacheLimit+1 {
+			break
+		}
+	}
+	if len(entries) != fontPackCacheLimit+1 {
+		t.Fatalf("catalog has %d unique packs, need %d to exercise eviction", len(entries), fontPackCacheLimit+1)
+	}
+
+	var cache fontPackCache
+	for _, entry := range entries[:fontPackCacheLimit] {
+		if _, err := cache.load(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := cache.load(entries[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cache.load(entries[fontPackCacheLimit]); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cache.packs) != fontPackCacheLimit {
+		t.Fatalf("cached %d packs, want %d", len(cache.packs), fontPackCacheLimit)
+	}
+	if _, ok := cache.packs[entries[0].Pack]; !ok {
+		t.Fatalf("recently used pack %q was evicted", entries[0].Pack)
+	}
+	if _, ok := cache.packs[entries[1].Pack]; ok {
+		t.Fatalf("least recently used pack %q is still cached", entries[1].Pack)
+	}
+}
+
 func TestLocalFontPickerEscapeReturnsToBundledCatalog(t *testing.T) {
 	model := newEditorModel()
 	model.openFontPicker()

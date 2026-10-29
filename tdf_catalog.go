@@ -89,6 +89,10 @@ func loadBundledFontEntry(entry fontCatalogEntry) (Font, error) {
 	if err != nil {
 		return Font{}, err
 	}
+	return bundledFontFromPack(fonts, entry)
+}
+
+func bundledFontFromPack(fonts []Font, entry fontCatalogEntry) (Font, error) {
 	if entry.Record >= len(fonts) || fonts[entry.Record].Name != entry.Name {
 		return Font{}, fmt.Errorf("bundled font catalog entry for %q does not match pack %q", entry.Name, entry.Pack)
 	}
