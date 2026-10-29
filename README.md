@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-3434ff.svg)](LICENSE)
 ![Interface](https://img.shields.io/badge/interface-TUI%20%2B%20CLI-3434ff.svg)
-[![Go](https://img.shields.io/badge/Go-1.20+-00c9e8.svg)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26.10-00c9e8.svg)](https://go.dev/)
 
 [Features](#features) · [Quick Start](#quick-start) · [TUI](#tui) · [CLI](#cli) · [Font Catalog](#font-catalog) · [sysc-greet Export](#sysc-greet-export) · [Development](#development) · [License](#license)
 
@@ -21,10 +21,11 @@
 | Feature | What it does |
 | --- | --- |
 | **ANSI header editor** | Edit text in a full-screen terminal UI and see the TheDraw output update as you type. |
-| **3,481 bundled font records** | Search and preview the bundled catalog without a network connection. Load other `.tdf` files from disk. |
+| **4,359 bundled font records** | Search and preview the bundled catalog without a network connection. Load other `.tdf` files from disk. |
 | **Authored color and alignment** | Keep each TDF cell's foreground and background by default. Choose left, center, or right alignment, or override either ANSI color. |
 | **sysc-greet export** | Preview a profile slot, create a new profile, or update an existing one with a backup. |
 | **ANSI export** | Save the colored terminal output as `.ans` and keep its escape sequences intact. |
+| **sysc-walls and sysc-terminal export** | Save the header as plain-text artwork for their text effects. The sysc-walls target also points its config at the file. |
 | **Command line** | Render a header or print an escaped sysc-greet profile snippet without opening the TUI. |
 
 The program embeds its font data. Clipboard copying uses the system clipboard utility when available; other features work without one.
@@ -37,7 +38,7 @@ Install for your user on Linux distributions with Go and POSIX `sh`:
 curl -fsSL https://raw.githubusercontent.com/Nomadcxx/sysclet/main/install.sh | sh
 ```
 
-Run the installer from an interactive terminal as your user, without `sudo`. It needs Go 1.20+ and network access, and installs sysclet to `~/.local/bin/sysclet` without using a distro package manager. The TDF fonts are bundled in the binary. If `~/.local/bin` is not on your `PATH`, run `~/.local/bin/sysclet`.
+Run the installer from an interactive terminal as your user, without `sudo`. It needs Go 1.21 or newer and network access (Go fetches the 1.26.10 toolchain the module declares), and installs sysclet to `~/.local/bin/sysclet` without using a distro package manager. The TDF fonts are bundled in the binary. If `~/.local/bin` is not on your `PATH`, run `~/.local/bin/sysclet`.
 
 You can install directly with Go instead:
 
@@ -46,11 +47,14 @@ mkdir -p "$HOME/.local/bin"
 GOBIN="$HOME/.local/bin" go install github.com/Nomadcxx/sysclet@latest
 ```
 
-Or install from the AUR:
+Or install from the AUR, the latest release or the development branch:
 
 ```sh
+yay -S sysclet
 yay -S sysclet-git
 ```
+
+Each GitHub release also carries static `sysclet-linux-amd64` and `sysclet-linux-arm64` binaries with a `SHA256SUMS` file.
 
 Run `sysclet` to open the editor.
 
@@ -73,7 +77,7 @@ The screen has a large ANSI preview, a control strip, and keyboard hints. The ac
 
 The `FG` and `BG` controls cycle through the 16-color ANSI palette and **TDF**, which restores the font's stored color for each cell. Alignment changes only the position of the rendered header.
 
-In sysc-greet export, `F5` copies the plain profile snippet without the surrounding TUI. On Linux, install `wl-clipboard` for Wayland or `xclip` or `xsel` for X11. These are optional dependencies for `sysclet-git`.
+In sysc-greet export, `F5` copies the plain profile snippet without the surrounding TUI. On Linux, install `wl-clipboard` for Wayland or `xclip` or `xsel` for X11. These are optional dependencies of the `sysclet` and `sysclet-git` packages.
 
 To load local fonts, place them in `~/.local/share/sysclet/fonts` (or `$XDG_DATA_HOME/sysclet/fonts`) and choose **TDF FONT → Ctrl+O**. A file with multiple records opens a searchable font-name list.
 
@@ -97,15 +101,31 @@ Print a sysc-greet snippet for review:
 sysclet export --font-name Bleach --slot ascii_1 COWBOY
 ```
 
+Choose another export target with `--format` (`sysc-greet`, `ansi`, `txt`, `go`, `js`, `py`, `rs`, `sh`, `sysc-walls` or `sysc-terminal`). ANSI, TXT and source formats print to stdout unless you pass `--output`; the sysc-walls and sysc-terminal targets need `--output`, a bare name or a path, and follow the rules in [sysc-greet Export](#sysc-greet-export):
+
+```sh
+sysclet export --font-name Bleach --format txt SYSC > header.txt
+sysclet export --font-name Bleach --format sysc-walls --output header SYSC
+```
+
+List bundled fonts, optionally filtered, or the records in a local file:
+
+```sh
+sysclet fonts rivendell
+sysclet fonts --font ./fonts/my-fonts.tdf
+```
+
 Text accepts printable ASCII (`!` through `~`) and spaces. Include at least one non-space character, and use a font with a glyph for every non-space character.
 
-Run `sysclet --help`, `sysclet render --help`, or `sysclet export --help` for options.
+Run `sysclet --help`, `sysclet render --help`, or `sysclet export --help` for options, and `sysclet --version` for the installed version.
 
 ## sysc-greet Export
 
 The TUI starts with sysc-greet and detects a matching profile from the active compositor or desktop session when possible. It selects the next `ascii_N` slot by default. Edit the slot field to replace a specific entry. The snippet preview shows the selected slot with ANSI colors. `Ctrl+S` updates an existing profile with a timestamped backup or creates a profile with `ansi_style=true` and the selected slot. `Ctrl+O` and `Ctrl+B` open the file picker from any export field; type a path directly when the file does not exist yet.
 
 Press `Tab` or `Shift+Tab` on the format row to cycle formats. Press `Enter` to move to the destination, then use `Tab` to reach the optional sysc-greet slot. **ANSI** saves colored output as `.ans`; display it in a terminal with `cat header.ans` or `less -R header.ans`. **TXT** removes ANSI colors. **GO**, **JS**, **PY**, **RS**, and **SH** export runnable source and show a run command in the TUI. sysclet adds the format extension when needed and backs up an existing file before replacing it.
+
+**sysc-walls** and **sysc-terminal** save plain text, because both apps draw the art in their own theme colors. A bare name such as `header` saves to `~/.local/share/syscgo/walls/header.txt`; other paths must be under `~/.local/share` or `~/.config`, the only places these apps read artwork from. The sysc-walls target also sets `effect = beam-text`, `theme = dracula`, `file` and `cycle = false` in the `[animation]` section of `~/.config/sysc-walls/daemon.conf`, the same values sysc-Go's export uses. It keeps the file's other lines and comments and saves a backup first. Restart the daemon with `systemctl --user restart sysc-walls.service`. For sysc-terminal, the TUI shows the `sysc-terminal --effect beam-text --file …` command to run.
 
 sysclet does not request elevated privileges. User-owned profile paths can be saved normally; root-owned system paths require running sysclet with `sudo`. Existing permission bits are preserved when updated, and a new file belongs to the user running sysclet with mode `0644` limited by the system umask. Run the TUI as root only when editing a system-owned profile:
 
@@ -126,11 +146,11 @@ sysc-greet maps the ANSI colors through the selected theme. The profile stores t
 
 ## Font Catalog
 
-sysclet bundles 3,481 named TDF records from 36 font packs distributed through TAAG's [TheDraw font sets](https://patorjk.com/software/taag/tdf-font-sets/). The TUI and CLI work offline. Individual records can have different authors and terms; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for source and license details. The GPL license for sysclet's code does not apply to those font files.
+sysclet bundles 4,359 named TDF records from 47 font packs: 3,481 distributed through TAAG's [TheDraw font sets](https://patorjk.com/software/taag/tdf-font-sets/), 723 more from [Phosphor](https://github.com/0xc1c4da/phosphor)'s TheDraw collection, and 155 converted from [sysc-Go](https://github.com/Nomadcxx/sysc-Go)'s BIT fonts. `scripts/import_fonts.py` rebuilds the Phosphor and BIT packs from their sources. The TUI and CLI work offline. Individual records can have different authors and terms; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for source and license details. The GPL license for sysclet's code does not apply to those font files.
 
 ## Development
 
-To build and install from a source checkout, use Go 1.20 or newer:
+To build and install from a source checkout, use Go 1.21 or newer; Go fetches the 1.26.10 toolchain the module declares:
 
 ```sh
 git clone https://github.com/Nomadcxx/sysclet.git
@@ -148,7 +168,7 @@ go test ./...
 go vet ./...
 ```
 
-GitHub Actions runs both commands on Go 1.20 and the current stable release for pull requests and pushes to `main`.
+GitHub Actions runs gofmt, vet, race tests and a build on the Go version in `go.mod` for pull requests and pushes to `main`.
 
 See [docs/design.md](docs/design.md) for package responsibilities, data flow, and file-update guarantees.
 

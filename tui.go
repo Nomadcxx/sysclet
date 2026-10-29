@@ -202,7 +202,7 @@ func (m *editorModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		if m.mode == modeFontPicker || m.mode == modeProfilePicker {
-			m.filePicker.Height = minInt(24, maxInt(6, msg.Height-12))
+			m.filePicker.SetHeight(minInt(24, maxInt(6, msg.Height-12)))
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -458,7 +458,7 @@ func newFilePicker(dir, extension string, height int) filepicker.Model {
 	picker.ShowPermissions = false
 	picker.ShowSize = false
 	if height > 0 {
-		picker.Height = minInt(24, maxInt(6, height-12))
+		picker.SetHeight(minInt(24, maxInt(6, height-12)))
 	}
 	return picker
 }
@@ -957,6 +957,24 @@ func (m *editorModel) saveExport() {
 		m.status = fmt.Sprintf("Updated %s · backup: %s", path, backup)
 		return
 	}
+	if m.exportFormat == exportSyscWalls || m.exportFormat == exportSyscTerm {
+		path, backup, configBackup, err := saveSyscArt(path, m.exportFormat, m.previewRaw)
+		if err != nil {
+			m.status = formatExportError(err)
+			return
+		}
+		m.status = "Exported " + path
+		if backup != "" {
+			m.status += " · backup: " + backup
+		}
+		if m.exportFormat == exportSyscWalls {
+			m.status += " · sysc-walls config updated; restart sysc-walls.service"
+			if configBackup != "" {
+				m.status += " · config backup: " + configBackup
+			}
+		}
+		return
+	}
 	content, err := generateExportContent(m.exportFormat, "", m.previewRaw)
 	if err != nil {
 		m.status = formatExportError(err)
@@ -1262,7 +1280,7 @@ func (m *editorModel) fullExportView(width, previewLines int) string {
 	case exportANSI:
 		previewLabel = "ANSI preview · escape sequences are preserved"
 		preview = m.previewRaw
-	case exportTXT:
+	case exportTXT, exportSyscWalls, exportSyscTerm:
 		previewLabel = "Plain text preview · ANSI colors are removed"
 		preview, _ = generateExportContent(m.exportFormat, "", m.previewRaw)
 	default:
@@ -1320,18 +1338,25 @@ func (m *editorModel) compactExportView(width, height int) string {
 	pathInput.Width = maxInt(1, width-lipgloss.Width(pathLabel)-5)
 
 	tabs := make([]string, 0, len(exportOptions))
-	for _, option := range exportOptions {
+	selected := ""
+	for i, option := range exportOptions {
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 		if option.format == m.exportFormat {
 			style = lipgloss.NewStyle().Foreground(lipgloss.Color("16")).Background(lipgloss.Color("45")).Bold(true)
+			selected = style.Render(string(option.format)) + fmt.Sprintf(" %d/%d · Tab cycles", i+1, len(exportOptions))
 		}
 		tabs = append(tabs, style.Render(string(option.format)))
+	}
+	strip := strings.Join(tabs, " ")
+	if lipgloss.Width(strip) > width {
+		// Keep the format row to one line so narrow terminals still show recovery guidance.
+		strip = selected
 	}
 	parts := []string{lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("45")).Render("sysclet · Export · " + string(m.exportFormat))}
 	if !showRecoveryStatus || height >= 11 {
 		parts = append(parts, exportFieldLabel("OUTPUT FORMAT", m.exportFocus == exportFocusFormat))
 	}
-	parts = append(parts, lipgloss.NewStyle().Width(width).Render(strings.Join(tabs, " ")))
+	parts = append(parts, lipgloss.NewStyle().Width(width).Render(strip))
 	if m.exportFormat == exportSyscGreet {
 		profileHint := "No compositor detected · Ctrl+O choose profile"
 		if m.detectedCompositor != "" {

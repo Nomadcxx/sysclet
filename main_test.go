@@ -43,3 +43,65 @@ func TestRunExportCreatesMissingProfile(t *testing.T) {
 		t.Fatalf("created profile = %q, missing ANSI slot", profile)
 	}
 }
+
+func TestVersionFlagPrintsStampedVersion(t *testing.T) {
+	defer func(old string) { version = old }(version)
+	version = "v9.9.9"
+	for _, arg := range []string{"--version", "-V", "version"} {
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{arg}, &stdout, &stderr); code != 0 || stdout.String() != "sysclet v9.9.9\n" {
+			t.Errorf("run(%q) = %d, stdout %q", arg, code, stdout.String())
+		}
+	}
+}
+
+func TestFontsCommandFiltersCatalog(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"fonts", "rivendell"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run(fonts) = %d, stderr %q", code, stderr.String())
+	}
+	if got := strings.Fields(stdout.String()); len(got) == 0 || got[0] != "Rivendell" {
+		t.Fatalf("fonts rivendell = %q, want Rivendell first", stdout.String())
+	}
+	if code := run([]string{"fonts", "no-such-font-zz"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("run(fonts no match) = %d, want 1", code)
+	}
+}
+
+func TestExportFormatsWriteStdoutFilesAndSyscTargets(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"export", "--font-name", "Bleach", "--format", "txt", "SYSC"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("txt export = %d, stderr %q", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "\x1b") || !strings.Contains(stdout.String(), "▄") {
+		t.Fatalf("txt export = %q, want plain block art", stdout.String())
+	}
+
+	out := filepath.Join(t.TempDir(), "header")
+	if code := run([]string{"export", "--font-name", "Bleach", "--format", "ANSI", "--output", out, "SYSC"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("ansi file export = %d, stderr %q", code, stderr.String())
+	}
+	if data, err := os.ReadFile(out + ".ans"); err != nil || !strings.Contains(string(data), "\x1b[") {
+		t.Fatalf("ansi file = %q, %v; want ANSI art", data, err)
+	}
+
+	t.Setenv("HOME", t.TempDir())
+	stderr.Reset()
+	if code := run([]string{"export", "--font-name", "Bleach", "--format", "sysc-terminal", "--output", "hdr", "SYSC"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("sysc-terminal export = %d, stderr %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "sysc-terminal --effect beam-text --file") {
+		t.Fatalf("sysc-terminal export stderr = %q, want the run command", stderr.String())
+	}
+
+	for _, args := range [][]string{
+		{"export", "--font-name", "Bleach", "--format", "png", "SYSC"},
+		{"export", "--font-name", "Bleach", "--format", "txt", "--slot", "ascii_1", "SYSC"},
+		{"export", "--font-name", "Bleach", "--format", "sysc-walls", "SYSC"},
+		{"export", "--font-name", "Bleach", "--slot", "ascii_1", "--output", out, "SYSC"},
+	} {
+		if code := run(args, &stdout, &stderr); code != 2 {
+			t.Errorf("run(%q) = %d, want usage error 2", args, code)
+		}
+	}
+}

@@ -49,13 +49,15 @@ type installOutputMsg struct {
 }
 
 type installDoneMsg struct {
-	err error
+	err     error
+	version string
 }
 
 type installStream struct {
 	pipe   *io.PipeReader
 	reader *bufio.Reader
 	done   <-chan error
+	binary string
 }
 
 type model struct {
@@ -179,6 +181,9 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.err == nil {
 			m.output = appendInstallOutput(m.output, "Installed executable: "+filepath.Join(m.installDir, "sysclet"))
+			if msg.version != "" {
+				m.output = appendInstallOutput(m.output, "Installed version: "+msg.version)
+			}
 		}
 	}
 	return m, nil
@@ -220,7 +225,7 @@ func (m model) View() string {
 		content = append(content, accentStyle.Render("Enter  Install or update sysclet"))
 		content = append(content, mutedStyle.Render("q  Quit"))
 		content = append(content, "")
-		content = append(content, mutedStyle.Render("Requires Go 1.20+ and an internet connection."))
+		content = append(content, mutedStyle.Render("Requires Go 1.21+ and an internet connection."))
 	}
 
 	view := lipgloss.JoinVertical(lipgloss.Center, content...)
@@ -259,7 +264,7 @@ func installCmd(ctx context.Context, installDir string) tea.Cmd {
 			}
 			done <- err
 		}()
-		return installStartedMsg{stream: &installStream{pipe: reader, reader: bufio.NewReader(reader), done: done}}
+		return installStartedMsg{stream: &installStream{pipe: reader, reader: bufio.NewReader(reader), done: done, binary: filepath.Join(installDir, "sysclet")}}
 	}
 }
 
@@ -271,13 +276,27 @@ func readInstallOutputCmd(stream *installStream) tea.Cmd {
 			return installOutputMsg{line: line}
 		}
 		if err == io.EOF {
-			return installDoneMsg{err: <-stream.done}
+			done := installDoneMsg{err: <-stream.done}
+			if done.err == nil {
+				done.version = installedVersion(stream.binary)
+			}
+			return done
 		}
 		if err != nil {
 			return installDoneMsg{err: err}
 		}
 		return installOutputMsg{}
 	}
+}
+
+// installedVersion asks the new binary for its version; releases before
+// v0.3.0 have no --version, so a failure just leaves the line out.
+func installedVersion(binary string) string {
+	output, err := exec.Command(binary, "--version").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSpace(string(output)), "sysclet ")
 }
 
 func appendInstallOutput(current, line string) string {

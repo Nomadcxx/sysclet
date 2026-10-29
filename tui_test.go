@@ -53,14 +53,14 @@ func TestNewEditorStartsWithBundledFont(t *testing.T) {
 func TestFontControlSearchesBundledCatalogAndLoadsChoice(t *testing.T) {
 	model := newEditorModel()
 	model.openFontPicker()
-	if model.mode != modeFontChoice || !model.fontChoiceFromCatalog || len(model.fontChoices) != 3481 {
+	if model.mode != modeFontChoice || !model.fontChoiceFromCatalog || len(model.fontChoices) != 4359 {
 		t.Fatalf("font chooser state = mode %v, catalog=%v, choices=%d; want all bundled fonts", model.mode, model.fontChoiceFromCatalog, len(model.fontChoices))
 	}
 
-	model.fontFilter.SetValue("FinalDestiny")
+	model.fontFilter.SetValue("FinalDestiny2")
 	model.filterFontChoices()
 	if len(model.fontChoices) != 1 {
-		t.Fatalf("FinalDestiny search returned %d results, want actual pack record FinalDestiny2", len(model.fontChoices))
+		t.Fatalf("FinalDestiny2 search returned %d results, want actual pack record FinalDestiny2", len(model.fontChoices))
 	}
 	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyEnter}))
 	if model.font.Name != "FinalDestiny2" {
@@ -319,7 +319,7 @@ func TestExportViewListsFormatsWithSyscGreetFirst(t *testing.T) {
 func TestExportTabsThroughFormatsBeforeDestination(t *testing.T) {
 	model := newEditorModel()
 	model.openExport()
-	want := []exportFormat{exportSyscGreet, exportANSI, exportTXT, exportGO, exportJS, exportPY, exportRS, exportSH}
+	want := []exportFormat{exportSyscGreet, exportANSI, exportTXT, exportGO, exportJS, exportPY, exportRS, exportSH, exportSyscWalls, exportSyscTerm}
 	for i, format := range want {
 		if model.exportFormat != format {
 			t.Fatalf("format tab %d = %q, want %q", i, model.exportFormat, format)
@@ -330,8 +330,8 @@ func TestExportTabsThroughFormatsBeforeDestination(t *testing.T) {
 		t.Fatalf("format after cycling all tabs = %q, want sysc-greet", model.exportFormat)
 	}
 	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyShiftTab}))
-	if model.exportFormat != exportSH {
-		t.Fatalf("format after Shift+Tab = %q, want SH", model.exportFormat)
+	if model.exportFormat != exportSyscTerm {
+		t.Fatalf("format after Shift+Tab = %q, want sysc-terminal", model.exportFormat)
 	}
 	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyTab}))
 	if model.exportFormat != exportSyscGreet {

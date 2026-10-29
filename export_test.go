@@ -91,3 +91,38 @@ func TestRepositoryHeaderIsLiteralSyscGreetProfile(t *testing.T) {
 		t.Fatalf("header profile hash = %s, want %s", got, want)
 	}
 }
+
+func TestSyscWallsExportWritesPlainArtAndKeepsConfigLines(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := home + "/.config/sysc-walls/daemon.conf"
+	if err := os.MkdirAll(home+"/.config/sysc-walls", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	config := "# mine\n[animation]\neffect = matrix-art\n# file = old\ntheme = rama\n\n[terminal]\nkitty = true\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	path, _, configBackup, err := saveSyscArt("header", exportSyscWalls, "\x1b[0;31m▄█\x1b[0m\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := home + "/.local/share/syscgo/walls/header.txt"; path != want {
+		t.Fatalf("art path = %q, want %q", path, want)
+	}
+	if art, _ := os.ReadFile(path); string(art) != "▄█\n" {
+		t.Fatalf("art = %q, want ANSI stripped", art)
+	}
+	got, _ := os.ReadFile(configPath)
+	want := "# mine\n[animation]\neffect = beam-text\n# file = old\ntheme = dracula\nfile = " + path + "\ncycle = false\n\n[terminal]\nkitty = true\n"
+	if string(got) != want {
+		t.Fatalf("daemon.conf =\n%s\nwant\n%s", got, want)
+	}
+	if backup, _ := os.ReadFile(configBackup); string(backup) != config {
+		t.Fatalf("config backup = %q, want original", backup)
+	}
+	if _, err := resolveSyscArtPath("/etc/header"); err == nil {
+		t.Fatal("resolveSyscArtPath accepted a path sysc-walls cannot read")
+	}
+}
