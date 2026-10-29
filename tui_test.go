@@ -98,6 +98,58 @@ func TestBundledFontChoiceViewRendersWithoutLoadedLocalFonts(t *testing.T) {
 	}
 }
 
+func TestBundledFontChoiceViewShowsPreview(t *testing.T) {
+	model := newEditorModel()
+	model.width, model.height = 100, 32
+	model.foreground, model.background = 3, 1
+	model.openFontPicker()
+
+	first := model.fontCatalog[model.fontChoices[model.fontIndex]]
+	view := model.View()
+	if !strings.Contains(view, "Preview: "+first.Name) {
+		t.Fatalf("font chooser view is missing preview for %q", first.Name)
+	}
+	firstFont, err := loadBundledFontEntry(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstArt, err := firstFont.RenderWithColors(model.text, model.foreground, model.background)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.fontPreview != firstArt {
+		t.Fatalf("preview does not match rendered header for %q", first.Name)
+	}
+	firstPreview := clipExportPreview(firstArt, 43, 17)
+	firstLine := strings.TrimSpace(strings.Split(ansi.Strip(firstPreview), "\n")[0])
+	if !strings.Contains(ansi.Strip(view), firstLine) {
+		t.Fatalf("font chooser view is missing preview art for %q", first.Name)
+	}
+
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyDown}))
+	second := model.fontCatalog[model.fontChoices[model.fontIndex]]
+	view = model.View()
+	if !strings.Contains(view, "Preview: "+second.Name) {
+		t.Fatalf("font chooser did not move preview to %q", second.Name)
+	}
+	secondFont, err := loadBundledFontEntry(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondArt, err := secondFont.RenderWithColors(model.text, model.foreground, model.background)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.fontPreview != secondArt {
+		t.Fatalf("preview did not update to rendered header for %q", second.Name)
+	}
+	secondPreview := clipExportPreview(secondArt, 43, 17)
+	secondLine := strings.TrimSpace(strings.Split(ansi.Strip(secondPreview), "\n")[0])
+	if !strings.Contains(ansi.Strip(view), secondLine) {
+		t.Fatalf("font chooser view is missing preview art for %q", second.Name)
+	}
+}
+
 func TestLocalFontPickerEscapeReturnsToBundledCatalog(t *testing.T) {
 	model := newEditorModel()
 	model.openFontPicker()

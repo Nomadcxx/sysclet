@@ -84,6 +84,7 @@ type editorModel struct {
 	fontChoices           []int
 	fontPath              string
 	fontIndex             int
+	fontPreview           string
 	fontChoiceFromCatalog bool
 	fontPickerReturnMode  editorMode
 	selectedControl       int
@@ -400,6 +401,7 @@ func (m *editorModel) openFontPicker() (tea.Model, tea.Cmd) {
 	m.fontFilter.SetValue("")
 	m.mode = modeFontChoice
 	m.status = ""
+	m.refreshFontPreview()
 	return m, m.fontFilter.Focus()
 }
 
@@ -622,6 +624,7 @@ func (m *editorModel) updateFontPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.mode = modeFontChoice
 			m.status = "This file contains multiple fonts"
+			m.refreshFontPreview()
 			return m, tea.Batch(command, m.fontFilter.Focus())
 		}
 	}
@@ -639,10 +642,12 @@ func (m *editorModel) updateFontChoice(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up":
 		if m.fontIndex > 0 {
 			m.fontIndex--
+			m.refreshFontPreview()
 		}
 	case "down":
 		if m.fontIndex+1 < len(m.fontChoices) {
 			m.fontIndex++
+			m.refreshFontPreview()
 		}
 	case "enter":
 		if len(m.fontChoices) > 0 {
@@ -674,6 +679,7 @@ func (m *editorModel) filterFontChoices() {
 		}
 	}
 	m.fontIndex = 0
+	m.refreshFontPreview()
 }
 
 func (m *editorModel) selectFont(index int) {
@@ -703,6 +709,39 @@ func (m *editorModel) selectFont(index int) {
 	if m.status == "" {
 		m.status = fmt.Sprintf("Loaded %s · %s", filepath.Base(m.fontPath), m.font.Name)
 	}
+}
+
+func (m *editorModel) refreshFontPreview() {
+	m.fontPreview = ""
+	if m.fontIndex < 0 || m.fontIndex >= len(m.fontChoices) {
+		return
+	}
+
+	choice := m.fontChoices[m.fontIndex]
+	var font Font
+	if m.fontChoiceFromCatalog {
+		if choice < 0 || choice >= len(m.fontCatalog) {
+			return
+		}
+		var err error
+		font, err = loadBundledFontEntry(m.fontCatalog[choice])
+		if err != nil {
+			m.fontPreview = "Preview unavailable: " + err.Error()
+			return
+		}
+	} else {
+		if choice < 0 || choice >= len(m.fonts) {
+			return
+		}
+		font = m.fonts[choice]
+	}
+
+	preview, err := font.RenderWithColors(m.text, m.foreground, m.background)
+	if err != nil {
+		m.fontPreview = "Preview unavailable: " + err.Error()
+		return
+	}
+	m.fontPreview = preview
 }
 
 func (m *editorModel) updateExport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1174,6 +1213,9 @@ func (m *editorModel) modalView(title, content, help string) string {
 }
 
 func (m *editorModel) fontChoiceView(width, height int) string {
+	contentWidth := minInt(92, width-12)
+	listWidth := (contentWidth - 2) / 2
+	previewWidth := contentWidth - listWidth - 2
 	rows := maxInt(1, height-14)
 	start := 0
 	if m.fontIndex >= rows {
@@ -1195,6 +1237,7 @@ func (m *editorModel) fontChoiceView(width, height int) string {
 		} else {
 			name = m.fonts[m.fontChoices[i]].Name
 		}
+		name = ansi.Truncate(name, maxInt(1, listWidth-2), "…")
 		fmt.Fprintf(&choices, "%s%s\n", marker, name)
 	}
 	if end < len(m.fontChoices) {
@@ -1203,7 +1246,28 @@ func (m *editorModel) fontChoiceView(width, height int) string {
 	if len(m.fontChoices) == 0 {
 		choices.WriteString("No font names match this filter.")
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, "Filter: "+m.fontFilter.View(), "", choices.String())
+	selectedName := ""
+	if m.fontIndex >= 0 && m.fontIndex < len(m.fontChoices) {
+		choice := m.fontChoices[m.fontIndex]
+		if m.fontChoiceFromCatalog && choice >= 0 && choice < len(m.fontCatalog) {
+			selectedName = m.fontCatalog[choice].Name
+		} else if !m.fontChoiceFromCatalog && choice >= 0 && choice < len(m.fonts) {
+			selectedName = m.fonts[choice].Name
+		}
+	}
+	preview := m.fontPreview
+	if preview == "" {
+		preview = "No font selected"
+	}
+	preview = clipExportPreview(preview, previewWidth, maxInt(1, rows-1))
+	previewView := lipgloss.NewStyle().Width(previewWidth).Render(lipgloss.JoinVertical(
+		lipgloss.Left,
+		"Preview: "+selectedName,
+		preview,
+	))
+	choiceView := lipgloss.NewStyle().Width(listWidth).Render(choices.String())
+	columns := lipgloss.JoinHorizontal(lipgloss.Top, choiceView, "  ", previewView)
+	content := lipgloss.JoinVertical(lipgloss.Left, "Filter: "+m.fontFilter.View(), "", columns)
 	title := "Choose a font in " + filepath.Base(m.fontPath)
 	help := "Type to filter · ↑/↓ navigate · Enter load · Esc back"
 	if m.fontChoiceFromCatalog {
