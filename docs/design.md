@@ -28,6 +28,6 @@ Updating a sysc-greet profile sets `ansi_style=true` and replaces the selected `
 
 ## Installer and assets
 
-`install.sh` requires Go 1.20 or newer, network access, and an interactive terminal. It refuses root execution; the installer writes to the invoking user's `~/.local/bin` and does not call a package manager. The bundled TDF files are third-party assets with terms separate from sysclet's GPL-3.0-only code; see [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md).
+`install.sh` requires Go 1.21 or newer (Go fetches the 1.26.10 toolchain `go.mod` declares), network access, and an interactive terminal. It refuses root execution; the installer writes to the invoking user's `~/.local/bin` and does not call a package manager. The bundled TDF files are third-party assets with terms separate from sysclet's GPL-3.0-only code; see [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md).
 
 `assets/sysclet-header.conf` holds the repository's ANSI header profile. The README wordmark uses that art on a transparent canvas with a moving beam. The profile stores art and colors. Select the **Beams** display effect in sysc-greet to animate it there.

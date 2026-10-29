@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install sysclet for the current user. Requires Go 1.20+ and network access.
+# Install sysclet for the current user. Requires Go 1.21+ and network access.
 
 set -eu
 
@@ -9,7 +9,7 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 if ! command -v go >/dev/null 2>&1; then
-	printf '%s\n' 'Go 1.20+ is required. Install Go, then run this script again.' >&2
+	printf '%s\n' 'Go 1.21+ is required. Install Go, then run this script again.' >&2
 	printf '%s\n' 'See https://go.dev/doc/install' >&2
 	exit 1
 fi

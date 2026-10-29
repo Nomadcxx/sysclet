@@ -220,7 +220,7 @@ func (m model) View() string {
 		content = append(content, accentStyle.Render("Enter  Install or update sysclet"))
 		content = append(content, mutedStyle.Render("q  Quit"))
 		content = append(content, "")
-		content = append(content, mutedStyle.Render("Requires Go 1.20+ and an internet connection."))
+		content = append(content, mutedStyle.Render("Requires Go 1.21+ and an internet connection."))
 	}
 
 	view := lipgloss.JoinVertical(lipgloss.Center, content...)

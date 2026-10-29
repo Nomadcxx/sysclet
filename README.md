@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-3434ff.svg)](LICENSE)
 ![Interface](https://img.shields.io/badge/interface-TUI%20%2B%20CLI-3434ff.svg)
-[![Go](https://img.shields.io/badge/Go-1.20+-00c9e8.svg)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26.10-00c9e8.svg)](https://go.dev/)
 
 [Features](#features) · [Quick Start](#quick-start) · [TUI](#tui) · [CLI](#cli) · [Font Catalog](#font-catalog) · [sysc-greet Export](#sysc-greet-export) · [Development](#development) · [License](#license)
 
@@ -38,7 +38,7 @@ Install for your user on Linux distributions with Go and POSIX `sh`:
 curl -fsSL https://raw.githubusercontent.com/Nomadcxx/sysclet/main/install.sh | sh
 ```
 
-Run the installer from an interactive terminal as your user, without `sudo`. It needs Go 1.20+ and network access, and installs sysclet to `~/.local/bin/sysclet` without using a distro package manager. The TDF fonts are bundled in the binary. If `~/.local/bin` is not on your `PATH`, run `~/.local/bin/sysclet`.
+Run the installer from an interactive terminal as your user, without `sudo`. It needs Go 1.21 or newer and network access (Go fetches the 1.26.10 toolchain the module declares), and installs sysclet to `~/.local/bin/sysclet` without using a distro package manager. The TDF fonts are bundled in the binary. If `~/.local/bin` is not on your `PATH`, run `~/.local/bin/sysclet`.
 
 You can install directly with Go instead:
 
@@ -133,7 +133,7 @@ sysclet bundles 4,359 named TDF records from 47 font packs: 3,481 distributed th
 
 ## Development
 
-To build and install from a source checkout, use Go 1.20 or newer:
+To build and install from a source checkout, use Go 1.21 or newer; Go fetches the 1.26.10 toolchain the module declares:
 
 ```sh
 git clone https://github.com/Nomadcxx/sysclet.git
@@ -151,7 +151,7 @@ go test ./...
 go vet ./...
 ```
 
-GitHub Actions runs both commands on Go 1.20 and the current stable release for pull requests and pushes to `main`.
+GitHub Actions runs gofmt, vet, race tests and a build on the Go version in `go.mod` for pull requests and pushes to `main`.
 
 See [docs/design.md](docs/design.md) for package responsibilities, data flow, and file-update guarantees.
 
