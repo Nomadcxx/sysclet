@@ -212,13 +212,33 @@ func (font Font) RenderWithColors(text string, foregroundOverride, backgroundOve
 		return "", fmt.Errorf("background color must be -1 (TDF) or between 0 and 15")
 	}
 
+	lines := strings.Split(text, "\n")
+	rendered := make([]string, len(lines))
+	hasGlyph := false
+	for i, line := range lines {
+		if strings.Trim(line, " ") == "" {
+			continue
+		}
+		art, err := font.renderLine(line, foregroundOverride, backgroundOverride)
+		if err != nil {
+			return "", err
+		}
+		rendered[i] = art
+		hasGlyph = true
+	}
+	if !hasGlyph {
+		return "", fmt.Errorf("text must contain at least one non-space character")
+	}
+	return strings.Join(rendered, "\n"), nil
+}
+
+func (font Font) renderLine(text string, foregroundOverride, backgroundOverride int) (string, error) {
 	type token struct {
 		space bool
 		rows  [][]Cell
 	}
 	tokens := make([]token, 0, utf8.RuneCountInString(text))
 	height := 0
-	hasGlyph := false
 	for _, char := range text {
 		if char == ' ' {
 			tokens = append(tokens, token{space: true})
@@ -234,11 +254,7 @@ func (font Font) RenderWithColors(text string, foregroundOverride, backgroundOve
 		if len(rows) > height {
 			height = len(rows)
 		}
-		hasGlyph = true
 		tokens = append(tokens, token{rows: rows})
-	}
-	if !hasGlyph {
-		return "", fmt.Errorf("text must contain at least one non-space character")
 	}
 
 	spacing := int(font.LetterSpacing) - 1

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -47,6 +48,66 @@ func TestNewEditorStartsWithBundledFont(t *testing.T) {
 	}
 	if model.preview == "" {
 		t.Fatal("initial bundled font did not render the default SYSC header")
+	}
+}
+
+func TestTextEditorEnterAddsLineBreak(t *testing.T) {
+	model := newEditorModel()
+	model.textInput.Focus()
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyEnter}))
+
+	if model.text != "SYSC\n" {
+		t.Fatalf("text after Enter = %q, want a trailing line break", model.text)
+	}
+	if !model.editingText() {
+		t.Fatal("text editor stopped editing after Enter")
+	}
+	if !strings.Contains(model.View(), "Enter new line") || !strings.Contains(model.View(), "Esc finish editing") {
+		t.Fatal("text editor view does not explain how to add or finish a text row")
+	}
+}
+
+func TestViewClipsTallHeaderPreviewToTerminal(t *testing.T) {
+	model := newEditorModel()
+	model.width, model.height = 80, 24
+	if err := model.setText(strings.Repeat("A\n", 20) + "A"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := lipgloss.Height(model.View()); got > model.height {
+		t.Fatalf("view height = %d, exceeds terminal height %d", got, model.height)
+	}
+
+	model.textInput.Focus()
+	if got := lipgloss.Height(model.View()); got > model.height {
+		t.Fatalf("focused view height = %d, exceeds terminal height %d", got, model.height)
+	}
+}
+
+func TestControlViewSummarizesTextLineBreaks(t *testing.T) {
+	model := newEditorModel()
+	view := ansi.Strip(model.controlView(controlText, "TEXT", "TOP\nBOTTOM"))
+	if got := lipgloss.Height(view); got != 4 {
+		t.Fatalf("control tile height = %d, want a fixed four-row tile: %q", got, view)
+	}
+	if !strings.Contains(view, "↵") {
+		t.Fatalf("control tile summary = %q, want visible line-break marker", view)
+	}
+}
+
+func TestClipViewPreviewPreservesTrailingBlankRows(t *testing.T) {
+	for _, test := range []struct {
+		preview  string
+		maxLines int
+		want     string
+	}{
+		{preview: "art\n", maxLines: 2, want: "art\n"},
+		{preview: "art\n\n", maxLines: 3, want: "art\n\n"},
+		{preview: "art\n", maxLines: 1, want: "art"},
+	} {
+		if got := clipViewPreview(test.preview, 10, test.maxLines); got != test.want {
+			t.Errorf("clipViewPreview(%q, %d) = %q, want %q", test.preview, test.maxLines, got, test.want)
+		}
 	}
 }
 

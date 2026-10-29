@@ -25,6 +25,41 @@ func TestParseTDFAndRenderPreservesGlyphColors(t *testing.T) {
 	}
 }
 
+func TestRenderStacksMultipleTextRows(t *testing.T) {
+	fonts, err := ParseTDF(testTDF())
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := fonts[0].Render("A")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, input := range []struct {
+		text string
+		want string
+	}{
+		{text: "A\nA", want: row + "\n" + row},
+		{text: "A\n\nA", want: row + "\n\n" + row},
+		{text: "A\n", want: row + "\n"},
+	} {
+		got, err := fonts[0].Render(input.text)
+		if err != nil {
+			t.Fatalf("Render(%q) error = %v", input.text, err)
+		}
+		if got != input.want {
+			t.Errorf("Render(%q) = %q, want %q", input.text, got, input.want)
+		}
+	}
+
+	if _, err := fonts[0].Render("\n  \n"); err == nil || !strings.Contains(err.Error(), "at least one non-space") {
+		t.Fatalf("Render(blank rows) error = %v, want missing glyph error", err)
+	}
+	if _, err := fonts[0].Render("A\rA"); err == nil || !strings.Contains(err.Error(), "unsupported character") {
+		t.Fatalf("Render(CR) error = %v, want unsupported character error", err)
+	}
+}
+
 func TestParseTDFAcceptsGlyphBoundEndingAfterZeroColorAttribute(t *testing.T) {
 	data := testTDF()
 	const glyphOffset = tdfHeaderSize + tdfRecordSize

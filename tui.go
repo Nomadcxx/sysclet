@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/filepicker"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -71,7 +71,7 @@ var ansiPaletteNames = [...]string{
 }
 
 type editorModel struct {
-	textInput             textinput.Model
+	textInput             textarea.Model
 	fontFilter            textinput.Model
 	profilePathInput      textinput.Model
 	filePathInput         textinput.Model
@@ -149,10 +149,13 @@ func (c *fontPackCache) clear() {
 }
 
 func newEditorModel() *editorModel {
-	textInput := textinput.New()
+	textInput := textarea.New()
 	textInput.Prompt = "> "
 	textInput.Placeholder = "Type a header"
 	textInput.CharLimit = 128
+	textInput.ShowLineNumbers = false
+	textInput.SetWidth(64)
+	textInput.SetHeight(3)
 	textInput.SetValue("SYSC")
 	textInput.Blur()
 
@@ -267,7 +270,7 @@ func (m *editorModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateProfilePicker(msg)
 		default:
 			if m.editingText() {
-				if msg.String() == "enter" || msg.String() == "esc" {
+				if msg.String() == "esc" {
 					m.textInput.Blur()
 					return m, nil
 				}
@@ -1143,12 +1146,18 @@ func (m *editorModel) View() string {
 	selectedInfo := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("16")).Background(lipgloss.Color("45")).Padding(0, 1).Render("SELECTED: " + controlNames[m.selectedControl])
 
 	panelHeight := height - 12
+	if m.editingText() {
+		panelHeight--
+	}
 	if panelHeight < 4 {
 		panelHeight = 4
 	}
 	availableWidth := maxInt(0, width-12)
 	art := alignANSI(m.previewRaw, m.alignment, minInt(alignedWidth, availableWidth))
 	hasArt := art != ""
+	if hasArt {
+		art = clipViewPreview(art, availableWidth, panelHeight-2)
+	}
 	if !hasArt {
 		message := "Select a local .tdf font to begin\n\nTDF files in ~/.local/share/sysclet/fonts appear here"
 		if fontDir, err := defaultFontDir(); err == nil {
@@ -1197,7 +1206,7 @@ func (m *editorModel) View() string {
 	}
 	help := lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render("Tab/Shift+Tab or ←/→ select · ↑/↓ adjust · Enter edit/open · e export · q quit")
 	if m.editingText() {
-		help = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render("Type to rerender · Enter/Esc finish · Ctrl+C quit")
+		help = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render("Type to rerender · Enter new line · Esc finish editing · Ctrl+C quit")
 	}
 	parts := []string{title, preview, fontInfo, selectedInfo, controlStrip}
 	if inputLine != "" {
@@ -1552,6 +1561,16 @@ func clipExportPreview(preview string, width, maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
+func clipViewPreview(preview string, width, maxLines int) string {
+	trailingBlank := strings.HasSuffix(preview, "\n")
+	fits := strings.Count(preview, "\n")+1 <= maxLines
+	clipped := clipExportPreview(preview, width, maxLines)
+	if trailingBlank && fits && clipped != "" {
+		return clipped + "\n"
+	}
+	return clipped
+}
+
 func (m *editorModel) controlView(control int, label, value string) string {
 	style := lipgloss.NewStyle().Width(10).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238"))
 	if m.selectedControl == control {
@@ -1559,9 +1578,8 @@ func (m *editorModel) controlView(control int, label, value string) string {
 	} else {
 		style = style.Foreground(lipgloss.Color("252"))
 	}
-	if utf8.RuneCountInString(value) > 10 {
-		value = string([]rune(value)[:9]) + "…"
-	}
+	value = strings.ReplaceAll(value, "\n", "↵")
+	value = ansi.Truncate(value, 10, "…")
 	return style.Render(label + "\n" + value)
 }
 
