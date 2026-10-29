@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -55,5 +56,42 @@ func TestInstallerViewShowsReleaseInstallAndExactDestination(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Errorf("installer view is missing %q", want)
 		}
+	}
+}
+
+func TestInstallerViewWrapsLongInstallPaths(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	deepPath := strings.TrimSuffix(strings.Repeat("deep"+string(filepath.Separator), 20), string(filepath.Separator))
+	installDir := filepath.Join(t.TempDir(), "alice smith", deepPath, "bin")
+	installPath := filepath.Join(installDir, "sysclet")
+	m := newModel(ctx, cancel, installDir)
+	m.width = 80
+	m.height = 50
+	m.installing = true
+
+	views := []string{m.View()}
+	m.installing = false
+	m.done = true
+	views = append(views, m.View())
+
+	widestLine := 0
+	for _, view := range views {
+		plain := ansi.Strip(view)
+		compact := strings.Join(strings.Fields(plain), "")
+		for _, line := range strings.Split(plain, "\n") {
+			if width := ansi.StringWidth(line); width > widestLine {
+				widestLine = width
+			}
+		}
+		if !strings.Contains(compact, strings.ReplaceAll(installPath, " ", "")) {
+			t.Errorf("installer view lost part of install path %q", installPath)
+		}
+		if !strings.Contains(plain, "alice smith") {
+			t.Error("installer view did not preserve spaces in the install path")
+		}
+	}
+	if widestLine > m.width {
+		t.Errorf("installer view line is %d columns wide, terminal is %d", widestLine, m.width)
 	}
 }

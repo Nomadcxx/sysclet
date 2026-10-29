@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const syscletModule = "github.com/Nomadcxx/sysclet@latest"
@@ -159,7 +160,7 @@ func (m model) View() string {
 		headerStyle.Render(strings.Join(asciiHeaderLines, "\n")),
 		titleStyle.Render("SYSCLET INSTALLER"),
 		mutedStyle.Render("Install or update sysclet for this user"),
-		accentStyle.Render("Binary: " + installPath),
+		accentStyle.Render(wrapInstallerPathLine("Binary: ", installPath, m.width)),
 		mutedStyle.Render("TDF fonts are bundled in the binary"),
 		"",
 	}
@@ -167,11 +168,11 @@ func (m model) View() string {
 	case m.installing:
 		content = append(content, accentStyle.Render(m.spinner.View()+" Installing sysclet release"))
 		content = append(content, mutedStyle.Render("Downloading and verifying sysclet release"))
-		content = append(content, mutedStyle.Render("Destination: "+installPath))
+		content = append(content, mutedStyle.Render(wrapInstallerPathLine("Destination: ", installPath, m.width)))
 		content = append(content, mutedStyle.Render("Ctrl+C cancels the download"))
 	case m.done && m.err == nil:
-		content = append(content, successStyle.Render("Installed successfully to "+installPath))
-		content = append(content, "Run: "+installPath)
+		content = append(content, successStyle.Render(wrapInstallerPathLine("Installed successfully to ", installPath, m.width)))
+		content = append(content, wrapInstallerPathLine("Run: ", installPath, m.width))
 		content = append(content, mutedStyle.Render("Enter or q to close"))
 	case m.done:
 		content = append(content, errorStyle.Render("Install failed: "+m.err.Error()))
@@ -189,6 +190,14 @@ func (m model) View() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, view)
 	}
 	return view
+}
+
+func wrapInstallerPathLine(label, path string, width int) string {
+	line := label + path
+	if width > 0 {
+		return ansi.Hardwrap(line, width, true)
+	}
+	return line
 }
 
 func installCmd(ctx context.Context, installDir string) tea.Cmd {
