@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/filepicker"
@@ -1147,12 +1146,18 @@ func (m *editorModel) View() string {
 	selectedInfo := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("16")).Background(lipgloss.Color("45")).Padding(0, 1).Render("SELECTED: " + controlNames[m.selectedControl])
 
 	panelHeight := height - 12
+	if m.editingText() {
+		panelHeight--
+	}
 	if panelHeight < 4 {
 		panelHeight = 4
 	}
 	availableWidth := maxInt(0, width-12)
 	art := alignANSI(m.previewRaw, m.alignment, minInt(alignedWidth, availableWidth))
 	hasArt := art != ""
+	if hasArt {
+		art = clipViewPreview(art, availableWidth, panelHeight-2)
+	}
 	if !hasArt {
 		message := "Select a local .tdf font to begin\n\nTDF files in ~/.local/share/sysclet/fonts appear here"
 		if fontDir, err := defaultFontDir(); err == nil {
@@ -1556,6 +1561,16 @@ func clipExportPreview(preview string, width, maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
+func clipViewPreview(preview string, width, maxLines int) string {
+	trailingBlank := strings.HasSuffix(preview, "\n")
+	fits := strings.Count(preview, "\n")+1 <= maxLines
+	clipped := clipExportPreview(preview, width, maxLines)
+	if trailingBlank && fits && clipped != "" {
+		return clipped + "\n"
+	}
+	return clipped
+}
+
 func (m *editorModel) controlView(control int, label, value string) string {
 	style := lipgloss.NewStyle().Width(10).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238"))
 	if m.selectedControl == control {
@@ -1563,9 +1578,8 @@ func (m *editorModel) controlView(control int, label, value string) string {
 	} else {
 		style = style.Foreground(lipgloss.Color("252"))
 	}
-	if utf8.RuneCountInString(value) > 10 {
-		value = string([]rune(value)[:9]) + "…"
-	}
+	value = strings.ReplaceAll(value, "\n", "↵")
+	value = ansi.Truncate(value, 10, "…")
 	return style.Render(label + "\n" + value)
 }
 
