@@ -98,6 +98,20 @@ Print a sysc-greet snippet for review:
 sysclet export --font-name Bleach --slot ascii_1 COWBOY
 ```
 
+Choose another export target with `--format` (`sysc-greet`, `ansi`, `txt`, `go`, `js`, `py`, `rs`, `sh`, `sysc-walls` or `sysc-terminal`). ANSI, TXT and source formats print to stdout unless you pass `--output`; the sysc-walls and sysc-terminal targets need `--output`, a bare name or a path, and follow the rules in [sysc-greet Export](#sysc-greet-export):
+
+```sh
+sysclet export --font-name Bleach --format txt SYSC > header.txt
+sysclet export --font-name Bleach --format sysc-walls --output header SYSC
+```
+
+List bundled fonts, optionally filtered, or the records in a local file:
+
+```sh
+sysclet fonts rivendell
+sysclet fonts --font ./fonts/my-fonts.tdf
+```
+
 Text accepts printable ASCII (`!` through `~`) and spaces. Include at least one non-space character, and use a font with a glyph for every non-space character.
 
 Run `sysclet --help`, `sysclet render --help`, or `sysclet export --help` for options, and `sysclet --version` for the installed version.

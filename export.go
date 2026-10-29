@@ -44,6 +44,16 @@ var exportOptions = [...]exportOption{
 	{format: exportSyscTerm, extension: ".txt"},
 }
 
+// parseExportFormat matches a format name case-insensitively, as typed on the command line.
+func parseExportFormat(name string) (exportFormat, bool) {
+	for _, option := range exportOptions {
+		if strings.EqualFold(string(option.format), name) {
+			return option.format, true
+		}
+	}
+	return "", false
+}
+
 func cycleExportFormat(current exportFormat, step int) exportFormat {
 	index := 0
 	for i, option := range exportOptions {
