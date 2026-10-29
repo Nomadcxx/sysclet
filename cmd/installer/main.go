@@ -2,21 +2,31 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 )
 
 const syscletModule = "github.com/Nomadcxx/sysclet@latest"
+const releaseBaseURL = "https://github.com/Nomadcxx/sysclet/releases/latest/download"
+
+const maxChecksumManifestSize = 1 << 20
+
+// ponytail: cap release downloads at 256 MiB to bound disk use; raise this if the bundled app grows beyond it.
+const maxReleaseBinarySize = 256 << 20
 
 var asciiHeaderLines = []string{
 	"  ██████████████░████░       ████░   ██████████████░  ██████████████░",
@@ -39,25 +49,8 @@ var (
 	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#f16c75"))
 )
 
-type installStartedMsg struct {
-	stream *installStream
-	err    error
-}
-
-type installOutputMsg struct {
-	line string
-}
-
 type installDoneMsg struct {
-	err     error
-	version string
-}
-
-type installStream struct {
-	pipe   *io.PipeReader
-	reader *bufio.Reader
-	done   <-chan error
-	binary string
+	err error
 }
 
 type model struct {
@@ -68,8 +61,6 @@ type model struct {
 	installing bool
 	done       bool
 	err        error
-	output     string
-	stream     *installStream
 	width      int
 	height     int
 }
@@ -132,9 +123,6 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			if m.installing {
 				m.cancel()
-				if m.stream != nil {
-					_ = m.stream.pipe.Close()
-				}
 			}
 			return m, tea.Quit
 		case "q", "esc":
@@ -149,7 +137,6 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			m.installing = true
-			m.output = ""
 			return m, tea.Batch(m.spinner.Tick, installCmd(m.ctx, m.installDir))
 		}
 	case spinner.TickMsg:
@@ -158,33 +145,10 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
 		}
-	case installStartedMsg:
-		if msg.err != nil {
-			m.installing = false
-			m.done = true
-			m.err = msg.err
-			return m, nil
-		}
-		m.stream = msg.stream
-		return m, readInstallOutputCmd(m.stream)
-	case installOutputMsg:
-		if msg.line != "" {
-			m.output = appendInstallOutput(m.output, ansi.Strip(msg.line))
-		}
-		return m, readInstallOutputCmd(m.stream)
 	case installDoneMsg:
 		m.installing = false
 		m.done = true
 		m.err = msg.err
-		if m.stream != nil {
-			_ = m.stream.pipe.Close()
-		}
-		if msg.err == nil {
-			m.output = appendInstallOutput(m.output, "Installed executable: "+filepath.Join(m.installDir, "sysclet"))
-			if msg.version != "" {
-				m.output = appendInstallOutput(m.output, "Installed version: "+msg.version)
-			}
-		}
 	}
 	return m, nil
 }
@@ -201,31 +165,23 @@ func (m model) View() string {
 	}
 	switch {
 	case m.installing:
-		content = append(content, accentStyle.Render(m.spinner.View()+" Installing "+syscletModule))
+		content = append(content, accentStyle.Render(m.spinner.View()+" Installing sysclet release"))
+		content = append(content, mutedStyle.Render("Downloading and verifying sysclet release"))
 		content = append(content, mutedStyle.Render("Destination: "+installPath))
-		if m.output != "" {
-			content = append(content, titleStyle.Render("Progress"), lipgloss.NewStyle().Width(78).Render(m.output))
-		}
-		content = append(content, mutedStyle.Render("Ctrl+C cancels the Go install"))
+		content = append(content, mutedStyle.Render("Ctrl+C cancels the download"))
 	case m.done && m.err == nil:
 		content = append(content, successStyle.Render("Installed successfully to "+installPath))
-		if m.output != "" {
-			content = append(content, titleStyle.Render("Progress"), lipgloss.NewStyle().Width(78).Render(m.output))
-		}
 		content = append(content, "Run: "+installPath)
 		content = append(content, mutedStyle.Render("Enter or q to close"))
 	case m.done:
 		content = append(content, errorStyle.Render("Install failed: "+m.err.Error()))
-		if m.output != "" {
-			content = append(content, lipgloss.NewStyle().Width(72).Render(m.output))
-		}
 		content = append(content, mutedStyle.Render("Enter or q to close"))
 	default:
 		content = append(content, mutedStyle.Render("Install: "+syscletModule))
 		content = append(content, accentStyle.Render("Enter  Install or update sysclet"))
 		content = append(content, mutedStyle.Render("q  Quit"))
 		content = append(content, "")
-		content = append(content, mutedStyle.Render("Requires Go 1.21+ and an internet connection."))
+		content = append(content, mutedStyle.Render("Requires an internet connection."))
 	}
 
 	view := lipgloss.JoinVertical(lipgloss.Center, content...)
@@ -237,87 +193,133 @@ func (m model) View() string {
 
 func installCmd(ctx context.Context, installDir string) tea.Cmd {
 	return func() tea.Msg {
-		goPath, err := exec.LookPath("go")
-		if err != nil {
-			return installStartedMsg{err: fmt.Errorf("find Go on PATH: %w", err)}
-		}
-		if err := os.MkdirAll(installDir, 0o755); err != nil {
-			return installStartedMsg{err: fmt.Errorf("create %s: %w", installDir, err)}
-		}
-
-		cmd := exec.CommandContext(ctx, goPath, "install", syscletModule)
-		cmd.Env = withEnv(os.Environ(), "GOBIN", installDir)
-		reader, writer := io.Pipe()
-		cmd.Stdout = writer
-		cmd.Stderr = writer
-		if err := cmd.Start(); err != nil {
-			_ = reader.Close()
-			_ = writer.Close()
-			return installStartedMsg{err: fmt.Errorf("start go install: %w", err)}
-		}
-		done := make(chan error, 1)
-		go func() {
-			err := cmd.Wait()
-			_ = writer.Close()
-			if err != nil {
-				err = fmt.Errorf("go install failed: %w", err)
-			}
-			done <- err
-		}()
-		return installStartedMsg{stream: &installStream{pipe: reader, reader: bufio.NewReader(reader), done: done, binary: filepath.Join(installDir, "sysclet")}}
+		return installDoneMsg{err: installRelease(ctx, releaseHTTPClient, releaseBaseURL, installDir, runtime.GOOS, runtime.GOARCH)}
 	}
 }
 
-func readInstallOutputCmd(stream *installStream) tea.Cmd {
-	return func() tea.Msg {
-		line, err := stream.reader.ReadString('\n')
-		line = strings.TrimRight(line, "\r\n")
-		if line != "" {
-			return installOutputMsg{line: line}
-		}
-		if err == io.EOF {
-			done := installDoneMsg{err: <-stream.done}
-			if done.err == nil {
-				done.version = installedVersion(stream.binary)
-			}
-			return done
-		}
-		if err != nil {
-			return installDoneMsg{err: err}
-		}
-		return installOutputMsg{}
+func installRelease(ctx context.Context, client *http.Client, baseURL, installDir, goos, goarch string) error {
+	if goos != "linux" || (goarch != "amd64" && goarch != "arm64") {
+		return fmt.Errorf("release installation is supported on Linux amd64 and arm64, not %s/%s", goos, goarch)
 	}
-}
+	if client == nil {
+		return fmt.Errorf("release HTTP client is nil")
+	}
 
-// installedVersion asks the new binary for its version; releases before
-// v0.3.0 have no --version, so a failure just leaves the line out.
-func installedVersion(binary string) string {
-	output, err := exec.Command(binary, "--version").Output()
+	asset := "sysclet-linux-" + goarch
+	manifestResponse, err := getReleaseAsset(ctx, client, baseURL, "SHA256SUMS")
 	if err != nil {
-		return ""
+		return err
 	}
-	return strings.TrimPrefix(strings.TrimSpace(string(output)), "sysclet ")
+	manifest, err := io.ReadAll(io.LimitReader(manifestResponse.Body, maxChecksumManifestSize+1))
+	_ = manifestResponse.Body.Close()
+	if err != nil {
+		return fmt.Errorf("read SHA256SUMS: %w", err)
+	}
+	if len(manifest) > maxChecksumManifestSize {
+		return fmt.Errorf("SHA256SUMS exceeds %d bytes", maxChecksumManifestSize)
+	}
+	checksum, err := releaseChecksum(manifest, asset)
+	if err != nil {
+		return err
+	}
+
+	assetResponse, err := getReleaseAsset(ctx, client, baseURL, asset)
+	if err != nil {
+		return err
+	}
+	defer assetResponse.Body.Close()
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", installDir, err)
+	}
+	tmp, err := os.CreateTemp(installDir, ".sysclet-*")
+	if err != nil {
+		return fmt.Errorf("create temporary binary in %s: %w", installDir, err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	hash := sha256.New()
+	size, err := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(assetResponse.Body, maxReleaseBinarySize+1))
+	if err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("download %s: %w", asset, err)
+	}
+	if size == 0 {
+		_ = tmp.Close()
+		return fmt.Errorf("release asset %s is empty", asset)
+	}
+	if size > maxReleaseBinarySize {
+		_ = tmp.Close()
+		return fmt.Errorf("release asset %s exceeds %d bytes", asset, maxReleaseBinarySize)
+	}
+	if got := hex.EncodeToString(hash.Sum(nil)); got != checksum {
+		_ = tmp.Close()
+		return fmt.Errorf("SHA-256 mismatch for %s", asset)
+	}
+	if err := tmp.Chmod(0o755); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("make downloaded binary executable: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync downloaded binary: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close downloaded binary: %w", err)
+	}
+	if err := os.Rename(tmpPath, filepath.Join(installDir, "sysclet")); err != nil {
+		return fmt.Errorf("replace %s: %w", filepath.Join(installDir, "sysclet"), err)
+	}
+	return nil
 }
 
-func appendInstallOutput(current, line string) string {
-	lines := []string{}
-	if current != "" {
-		lines = strings.Split(current, "\n")
+var releaseHTTPClient = &http.Client{Timeout: 5 * time.Minute}
+
+func getReleaseAsset(ctx context.Context, client *http.Client, baseURL, name string) (*http.Response, error) {
+	url := strings.TrimRight(baseURL, "/") + "/" + name
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create release request for %s: %w", name, err)
 	}
-	lines = append(lines, line)
-	if len(lines) > 6 {
-		lines = lines[len(lines)-6:]
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("download %s: %w", name, err)
 	}
-	return strings.Join(lines, "\n")
+	if response.StatusCode != http.StatusOK {
+		_ = response.Body.Close()
+		return nil, fmt.Errorf("download %s: HTTP %s", name, response.Status)
+	}
+	return response, nil
 }
 
-func withEnv(env []string, key, value string) []string {
-	result := make([]string, 0, len(env)+1)
-	for _, entry := range env {
-		name, _, ok := strings.Cut(entry, "=")
-		if !ok || name != key {
-			result = append(result, entry)
+func releaseChecksum(manifest []byte, asset string) (string, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(manifest))
+	checksum := ""
+	for line := 1; scanner.Scan(); line++ {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields) != 2 {
+			return "", fmt.Errorf("invalid SHA256SUMS entry on line %d", line)
+		}
+		decoded, err := hex.DecodeString(fields[0])
+		if err != nil || len(decoded) != sha256.Size {
+			return "", fmt.Errorf("invalid SHA-256 digest on line %d", line)
+		}
+		name := strings.TrimPrefix(fields[1], "*")
+		if name == asset {
+			if checksum != "" {
+				return "", fmt.Errorf("duplicate SHA256SUMS entry for %s", asset)
+			}
+			checksum = strings.ToLower(fields[0])
 		}
 	}
-	return append(result, key+"="+value)
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("read SHA256SUMS: %w", err)
+	}
+	if checksum == "" {
+		return "", fmt.Errorf("SHA256SUMS has no entry for %s", asset)
+	}
+	return checksum, nil
 }
