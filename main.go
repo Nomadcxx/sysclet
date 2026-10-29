@@ -5,8 +5,24 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 )
+
+// version is stamped by release builds: -ldflags "-X main.version=v0.3.0".
+var version string
+
+// versionString falls back to the module version Go records, so
+// `go install github.com/Nomadcxx/sysclet@v0.3.0` reports v0.3.0 too.
+func versionString() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "devel"
+}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -18,6 +34,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "--help" || args[0] == "-h" {
 		printUsage(stdout)
+		return 0
+	}
+	if args[0] == "--version" || args[0] == "-V" || args[0] == "version" {
+		fmt.Fprintln(stdout, "sysclet "+versionString())
 		return 0
 	}
 	switch args[0] {
@@ -206,6 +226,7 @@ func printUsage(output io.Writer) {
 	fmt.Fprintln(output, "  tui     Open the interactive ANSI header editor")
 	fmt.Fprintln(output, "  render  Print ANSI art to the terminal")
 	fmt.Fprintln(output, "  export  Print a sysc-greet profile snippet or update a profile")
+	fmt.Fprintln(output, "  version Print the sysclet version (also --version, -V)")
 	fmt.Fprintln(output, "")
 	fmt.Fprintln(output, "Examples:")
 	fmt.Fprintln(output, "  sysclet")

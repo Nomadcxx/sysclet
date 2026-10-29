@@ -100,7 +100,7 @@ sysclet export --font-name Bleach --slot ascii_1 COWBOY
 
 Text accepts printable ASCII (`!` through `~`) and spaces. Include at least one non-space character, and use a font with a glyph for every non-space character.
 
-Run `sysclet --help`, `sysclet render --help`, or `sysclet export --help` for options.
+Run `sysclet --help`, `sysclet render --help`, or `sysclet export --help` for options, and `sysclet --version` for the installed version.
 
 ## sysc-greet Export
 

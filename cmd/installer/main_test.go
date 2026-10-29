@@ -151,3 +151,17 @@ func TestInstallerProgressShowsArtifactAndExactDestination(t *testing.T) {
 		}
 	}
 }
+
+func TestInstalledVersionReadsBinaryVersion(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "sysclet")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\necho 'sysclet v1.2.3'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := installedVersion(binary); got != "v1.2.3" {
+		t.Fatalf("installedVersion() = %q, want v1.2.3", got)
+	}
+	if got := installedVersion(filepath.Join(dir, "missing")); got != "" {
+		t.Fatalf("installedVersion(missing) = %q, want empty", got)
+	}
+}

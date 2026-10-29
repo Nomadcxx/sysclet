@@ -43,3 +43,14 @@ func TestRunExportCreatesMissingProfile(t *testing.T) {
 		t.Fatalf("created profile = %q, missing ANSI slot", profile)
 	}
 }
+
+func TestVersionFlagPrintsStampedVersion(t *testing.T) {
+	defer func(old string) { version = old }(version)
+	version = "v9.9.9"
+	for _, arg := range []string{"--version", "-V", "version"} {
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{arg}, &stdout, &stderr); code != 0 || stdout.String() != "sysclet v9.9.9\n" {
+			t.Errorf("run(%q) = %d, stdout %q", arg, code, stdout.String())
+		}
+	}
+}
