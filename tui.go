@@ -202,7 +202,7 @@ func (m *editorModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		if m.mode == modeFontPicker || m.mode == modeProfilePicker {
-			m.filePicker.Height = minInt(24, maxInt(6, msg.Height-12))
+			m.filePicker.SetHeight(minInt(24, maxInt(6, msg.Height-12)))
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -458,7 +458,7 @@ func newFilePicker(dir, extension string, height int) filepicker.Model {
 	picker.ShowPermissions = false
 	picker.ShowSize = false
 	if height > 0 {
-		picker.Height = minInt(24, maxInt(6, height-12))
+		picker.SetHeight(minInt(24, maxInt(6, height-12)))
 	}
 	return picker
 }
