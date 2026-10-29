@@ -50,6 +50,22 @@ func TestNewEditorStartsWithBundledFont(t *testing.T) {
 	}
 }
 
+func TestTextEditorEnterAddsLineBreak(t *testing.T) {
+	model := newEditorModel()
+	model.textInput.Focus()
+	model.Update(tea.KeyMsg(tea.Key{Type: tea.KeyEnter}))
+
+	if model.text != "SYSC\n" {
+		t.Fatalf("text after Enter = %q, want a trailing line break", model.text)
+	}
+	if !model.editingText() {
+		t.Fatal("text editor stopped editing after Enter")
+	}
+	if !strings.Contains(model.View(), "Enter new line") || !strings.Contains(model.View(), "Esc finish editing") {
+		t.Fatal("text editor view does not explain how to add or finish a text row")
+	}
+}
+
 func TestFontControlSearchesBundledCatalogAndLoadsChoice(t *testing.T) {
 	model := newEditorModel()
 	model.openFontPicker()

@@ -25,6 +25,23 @@ func TestRunRenderCommandWritesANSIArt(t *testing.T) {
 	}
 }
 
+func TestRunRenderCommandAcceptsMultipleRows(t *testing.T) {
+	fontPath := filepath.Join(t.TempDir(), "tiny.tdf")
+	if err := os.WriteFile(fontPath, testTDF(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"render", "--font", fontPath, "A\nA"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %q", code, stderr.String())
+	}
+	row := "\x1b[0;31;44m─\x1b[0m\n\x1b[0;94m│\x1b[0m"
+	if want := row + "\n" + row + "\n"; stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
+}
+
 func TestRunExportCreatesMissingProfile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "new-profile.conf")
 	var stdout, stderr bytes.Buffer

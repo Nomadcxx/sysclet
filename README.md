@@ -115,7 +115,7 @@ sysclet fonts rivendell
 sysclet fonts --font ./fonts/my-fonts.tdf
 ```
 
-Text accepts printable ASCII (`!` through `~`) and spaces. Include at least one non-space character, and use a font with a glyph for every non-space character.
+Text accepts printable ASCII, spaces, and LF line breaks. Each LF starts another stacked header row; repeated LFs add blank rows. Include at least one non-space character, and use a font with a glyph for every non-space character. Other control characters remain invalid.
 
 Run `sysclet --help`, `sysclet render --help`, or `sysclet export --help` for options, and `sysclet --version` for the installed version.
 

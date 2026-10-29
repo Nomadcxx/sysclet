@@ -9,6 +9,7 @@ import (
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/filepicker"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -71,7 +72,7 @@ var ansiPaletteNames = [...]string{
 }
 
 type editorModel struct {
-	textInput             textinput.Model
+	textInput             textarea.Model
 	fontFilter            textinput.Model
 	profilePathInput      textinput.Model
 	filePathInput         textinput.Model
@@ -149,10 +150,13 @@ func (c *fontPackCache) clear() {
 }
 
 func newEditorModel() *editorModel {
-	textInput := textinput.New()
+	textInput := textarea.New()
 	textInput.Prompt = "> "
 	textInput.Placeholder = "Type a header"
 	textInput.CharLimit = 128
+	textInput.ShowLineNumbers = false
+	textInput.SetWidth(64)
+	textInput.SetHeight(3)
 	textInput.SetValue("SYSC")
 	textInput.Blur()
 
@@ -267,7 +271,7 @@ func (m *editorModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateProfilePicker(msg)
 		default:
 			if m.editingText() {
-				if msg.String() == "enter" || msg.String() == "esc" {
+				if msg.String() == "esc" {
 					m.textInput.Blur()
 					return m, nil
 				}
@@ -1197,7 +1201,7 @@ func (m *editorModel) View() string {
 	}
 	help := lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render("Tab/Shift+Tab or ←/→ select · ↑/↓ adjust · Enter edit/open · e export · q quit")
 	if m.editingText() {
-		help = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render("Type to rerender · Enter/Esc finish · Ctrl+C quit")
+		help = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render("Type to rerender · Enter new line · Esc finish editing · Ctrl+C quit")
 	}
 	parts := []string{title, preview, fontInfo, selectedInfo, controlStrip}
 	if inputLine != "" {
