@@ -47,11 +47,14 @@ mkdir -p "$HOME/.local/bin"
 GOBIN="$HOME/.local/bin" go install github.com/Nomadcxx/sysclet@latest
 ```
 
-Or install from the AUR:
+Or install from the AUR, the latest release or the development branch:
 
 ```sh
+yay -S sysclet
 yay -S sysclet-git
 ```
+
+Each GitHub release also carries static `sysclet-linux-amd64` and `sysclet-linux-arm64` binaries with a `SHA256SUMS` file.
 
 Run `sysclet` to open the editor.
 
@@ -74,7 +77,7 @@ The screen has a large ANSI preview, a control strip, and keyboard hints. The ac
 
 The `FG` and `BG` controls cycle through the 16-color ANSI palette and **TDF**, which restores the font's stored color for each cell. Alignment changes only the position of the rendered header.
 
-In sysc-greet export, `F5` copies the plain profile snippet without the surrounding TUI. On Linux, install `wl-clipboard` for Wayland or `xclip` or `xsel` for X11. These are optional dependencies for `sysclet-git`.
+In sysc-greet export, `F5` copies the plain profile snippet without the surrounding TUI. On Linux, install `wl-clipboard` for Wayland or `xclip` or `xsel` for X11. These are optional dependencies of the `sysclet` and `sysclet-git` packages.
 
 To load local fonts, place them in `~/.local/share/sysclet/fonts` (or `$XDG_DATA_HOME/sysclet/fonts`) and choose **TDF FONT → Ctrl+O**. A file with multiple records opens a searchable font-name list.
 
