@@ -21,10 +21,11 @@
 | Feature | What it does |
 | --- | --- |
 | **ANSI header editor** | Edit text in a full-screen terminal UI and see the TheDraw output update as you type. |
-| **3,481 bundled font records** | Search and preview the bundled catalog without a network connection. Load other `.tdf` files from disk. |
+| **4,359 bundled font records** | Search and preview the bundled catalog without a network connection. Load other `.tdf` files from disk. |
 | **Authored color and alignment** | Keep each TDF cell's foreground and background by default. Choose left, center, or right alignment, or override either ANSI color. |
 | **sysc-greet export** | Preview a profile slot, create a new profile, or update an existing one with a backup. |
 | **ANSI export** | Save the colored terminal output as `.ans` and keep its escape sequences intact. |
+| **sysc-walls and sysc-terminal export** | Save the header as plain-text artwork for their text effects. The sysc-walls target also points its config at the file. |
 | **Command line** | Render a header or print an escaped sysc-greet profile snippet without opening the TUI. |
 
 The program embeds its font data. Clipboard copying uses the system clipboard utility when available; other features work without one.
@@ -106,6 +107,8 @@ Run `sysclet --help`, `sysclet render --help`, or `sysclet export --help` for op
 The TUI starts with sysc-greet and detects a matching profile from the active compositor or desktop session when possible. It selects the next `ascii_N` slot by default. Edit the slot field to replace a specific entry. The snippet preview shows the selected slot with ANSI colors. `Ctrl+S` updates an existing profile with a timestamped backup or creates a profile with `ansi_style=true` and the selected slot. `Ctrl+O` and `Ctrl+B` open the file picker from any export field; type a path directly when the file does not exist yet.
 
 Press `Tab` or `Shift+Tab` on the format row to cycle formats. Press `Enter` to move to the destination, then use `Tab` to reach the optional sysc-greet slot. **ANSI** saves colored output as `.ans`; display it in a terminal with `cat header.ans` or `less -R header.ans`. **TXT** removes ANSI colors. **GO**, **JS**, **PY**, **RS**, and **SH** export runnable source and show a run command in the TUI. sysclet adds the format extension when needed and backs up an existing file before replacing it.
+
+**sysc-walls** and **sysc-terminal** save plain text, because both apps draw the art in their own theme colors. A bare name such as `header` saves to `~/.local/share/syscgo/walls/header.txt`; other paths must be under `~/.local/share` or `~/.config`, the only places these apps read artwork from. The sysc-walls target also sets `effect = beam-text`, `theme = dracula`, `file` and `cycle = false` in the `[animation]` section of `~/.config/sysc-walls/daemon.conf`, the same values sysc-Go's export uses. It keeps the file's other lines and comments and saves a backup first. Restart the daemon with `systemctl --user restart sysc-walls.service`. For sysc-terminal, the TUI shows the `sysc-terminal --effect beam-text --file …` command to run.
 
 sysclet does not request elevated privileges. User-owned profile paths can be saved normally; root-owned system paths require running sysclet with `sudo`. Existing permission bits are preserved when updated, and a new file belongs to the user running sysclet with mode `0644` limited by the system umask. Run the TUI as root only when editing a system-owned profile:
 
