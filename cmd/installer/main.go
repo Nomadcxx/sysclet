@@ -90,11 +90,26 @@ func run() int {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	program := tea.NewProgram(newModel(ctx, cancel, installDir), tea.WithAltScreen())
-	if _, err := program.Run(); err != nil {
+	final, err := program.Run()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "sysclet installer: %v\n", err)
 		return 1
 	}
+	if installErr := installerFailure(final); installErr != nil {
+		fmt.Fprintf(os.Stderr, "sysclet installer: install failed: %v\n", installErr)
+		return 1
+	}
 	return 0
+}
+
+// installerFailure reports an installation error stored in the final TUI
+// model. Bubble Tea exits normally after the error screen is closed, so run()
+// must inspect the model instead of relying on Program.Run's error.
+func installerFailure(final tea.Model) error {
+	if installer, ok := final.(model); ok {
+		return installer.err
+	}
+	return nil
 }
 
 func userInstallDir(home string) (string, error) {

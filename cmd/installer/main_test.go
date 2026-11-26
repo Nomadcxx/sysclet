@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -93,5 +94,15 @@ func TestInstallerViewWrapsLongInstallPaths(t *testing.T) {
 	}
 	if widestLine > m.width {
 		t.Errorf("installer view line is %d columns wide, terminal is %d", widestLine, m.width)
+	}
+}
+
+func TestInstallerFailureReportsErrorForExitStatus(t *testing.T) {
+	installErr := errors.New("release checksum mismatch")
+	if got := installerFailure(model{err: installErr}); !errors.Is(got, installErr) {
+		t.Fatalf("installerFailure = %v, want %v", got, installErr)
+	}
+	if got := installerFailure(model{done: true}); got != nil {
+		t.Fatalf("successful installer returned error %v", got)
 	}
 }
