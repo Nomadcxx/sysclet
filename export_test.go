@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -124,5 +125,85 @@ func TestSyscWallsExportWritesPlainArtAndKeepsConfigLines(t *testing.T) {
 	}
 	if _, err := resolveSyscArtPath("/etc/header"); err == nil {
 		t.Fatal("resolveSyscArtPath accepted a path sysc-walls cannot read")
+	}
+}
+
+func TestSyscArtRejectsParentSymlinkOutsideRoots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(home, ".config", "escape")); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+
+	target := filepath.Join(home, ".config", "escape", "victim")
+	if _, err := resolveSyscArtPath(target); err == nil {
+		t.Fatal("resolveSyscArtPath accepted a parent symlink that leaves the allowed roots")
+	}
+	if _, _, _, err := saveSyscArt(target, exportSyscWalls, "art\n"); err == nil {
+		t.Fatal("saveSyscArt wrote through a parent symlink that leaves the allowed roots")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "victim.txt")); !os.IsNotExist(err) {
+		t.Fatalf("write escaped the allowed roots: %v", err)
+	}
+}
+
+func TestSyscArtRejectsSymlinkAtOutputPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".config", "sysc-walls")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "target.txt")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "art.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+
+	if _, _, _, err := saveSyscArt(link, exportSyscWalls, "replace\n"); err == nil {
+		t.Fatal("saveSyscArt replaced a symlink")
+	}
+	contents, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "keep" {
+		t.Fatalf("symlink target changed to %q", contents)
+	}
+}
+
+func TestSyscArtReplacementKeepsBackupInsideAllowedRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, ".config", "art.txt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("old"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	gotPath, backup, _, err := saveSyscArt(path, exportSyscTerm, "new\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != path {
+		t.Fatalf("art path = %q, want %q", gotPath, path)
+	}
+	if !strings.HasPrefix(backup, filepath.Join(home, ".config")+string(filepath.Separator)) {
+		t.Fatalf("backup path %q is outside the allowed root", backup)
+	}
+	if contents, _ := os.ReadFile(backup); string(contents) != "old" {
+		t.Fatalf("backup = %q, want old contents", contents)
+	}
+	if contents, _ := os.ReadFile(path); string(contents) != "new\n" {
+		t.Fatalf("art = %q, want replacement", contents)
 	}
 }
