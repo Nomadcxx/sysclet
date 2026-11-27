@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 )
@@ -281,10 +284,207 @@ func resolveSyscArtPath(path string) (string, error) {
 	}
 	for _, root := range []string{filepath.Join(home, ".local", "share"), filepath.Join(home, ".config")} {
 		if strings.HasPrefix(path, root+string(filepath.Separator)) {
+			if err := validateSyscArtParent(path); err != nil {
+				return "", err
+			}
 			return path, nil
 		}
 	}
 	return "", fmt.Errorf("sysc-walls and sysc-terminal only read art under ~/.local/share or ~/.config")
+}
+
+// validateSyscArtParent rejects output paths whose parent resolves outside the
+// sysc-walls roots. The write path also uses an os.Root so a symlink swap cannot
+// redirect the final create or rename.
+func validateSyscArtParent(path string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("resolve output directory: %w", err)
+	}
+	for _, root := range []string{filepath.Join(home, ".local", "share"), filepath.Join(home, ".config")} {
+		resolvedRoot, err := filepath.EvalSymlinks(root)
+		if errors.Is(err, os.ErrNotExist) {
+			resolvedRoot = root
+		} else if err != nil {
+			return fmt.Errorf("resolve art root: %w", err)
+		}
+		if pathWithin(resolvedParent, resolvedRoot) {
+			return nil
+		}
+	}
+	return fmt.Errorf("output directory resolves outside ~/.local/share and ~/.config")
+}
+
+func pathWithin(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// openSyscArtRoot opens the allowed art root that contains path. Root-based
+// filesystem operations keep every intermediate component inside that root.
+func openSyscArtRoot(path string) (*os.Root, string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, "", err
+	}
+	for _, root := range []string{filepath.Join(home, ".local", "share"), filepath.Join(home, ".config")} {
+		if !pathWithin(filepath.Dir(path), root) {
+			continue
+		}
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			return nil, "", err
+		}
+		handle, err := os.OpenRoot(root)
+		if err != nil {
+			return nil, "", err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			_ = handle.Close()
+			return nil, "", err
+		}
+		return handle, rel, nil
+	}
+	return nil, "", fmt.Errorf("sysc-walls and sysc-terminal only read art under ~/.local/share or ~/.config")
+}
+
+// writeExportFileAt is writeExportFile restricted to an os.Root. It never
+// follows a symlink out of the root, including during backup and replacement.
+func writeExportFileAt(root *os.Root, name, content string) (string, string, error) {
+	fullPath := filepath.Join(root.Name(), name)
+	info, err := root.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) {
+		file, createErr := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if createErr != nil {
+			return "", "", fmt.Errorf("create export %q: %w", fullPath, createErr)
+		}
+		_, writeErr := io.WriteString(file, content)
+		if writeErr == nil {
+			writeErr = file.Sync()
+		}
+		closeErr := file.Close()
+		if writeErr != nil {
+			_ = root.Remove(name)
+			return "", "", fmt.Errorf("write export %q: %w", fullPath, writeErr)
+		}
+		if closeErr != nil {
+			_ = root.Remove(name)
+			return "", "", fmt.Errorf("close export %q: %w", fullPath, closeErr)
+		}
+		return fullPath, "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("inspect export %q: %w", fullPath, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", "", fmt.Errorf("refusing to replace symlink %q", fullPath)
+	}
+	if !info.Mode().IsRegular() {
+		return "", "", fmt.Errorf("export path %q is not a regular file", fullPath)
+	}
+	original, err := root.ReadFile(name)
+	if err != nil {
+		return "", "", fmt.Errorf("read existing export %q: %w", fullPath, err)
+	}
+	backup, err := createBackupAt(root, name, original, info.Mode().Perm())
+	if err != nil {
+		return "", "", fmt.Errorf("back up existing export %q: %w", fullPath, err)
+	}
+	if err := replaceFileAt(root, name, original, []byte(content), info.Mode().Perm()); err != nil {
+		return fullPath, backup, fmt.Errorf("write export %q (original saved at %s): %w", fullPath, backup, err)
+	}
+	return fullPath, backup, nil
+}
+
+func createBackupAt(root *os.Root, name string, contents []byte, mode os.FileMode) (string, error) {
+	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
+	for attempt := 0; attempt < 10; attempt++ {
+		suffix := stamp
+		if attempt > 0 {
+			suffix += "-" + strconv.Itoa(attempt)
+		}
+		backupName := name + ".sysclet-" + suffix + ".bak"
+		file, err := root.OpenFile(backupName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, writeErr := file.Write(contents)
+		if writeErr == nil {
+			writeErr = file.Sync()
+		}
+		closeErr := file.Close()
+		if writeErr != nil || closeErr != nil {
+			_ = root.Remove(backupName)
+			return "", errors.Join(writeErr, closeErr)
+		}
+		return filepath.Join(root.Name(), backupName), nil
+	}
+	return "", fmt.Errorf("could not choose a unique backup filename")
+}
+
+func replaceFileAt(root *os.Root, name string, original, updated []byte, mode os.FileMode) error {
+	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
+	directory := filepath.Dir(name)
+	var temporaryName string
+	var temporary *os.File
+	for attempt := 0; attempt < 10; attempt++ {
+		suffix := stamp
+		if attempt > 0 {
+			suffix += "-" + strconv.Itoa(attempt)
+		}
+		temporaryName = filepath.Join(directory, ".sysclet-"+suffix+".tmp")
+		file, err := root.OpenFile(temporaryName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		temporary = file
+		break
+	}
+	if temporary == nil {
+		return fmt.Errorf("could not choose a unique temporary filename")
+	}
+	defer root.Remove(temporaryName)
+
+	if err := temporary.Chmod(mode); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(updated); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+
+	current, err := root.ReadFile(name)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(current, original) {
+		return fmt.Errorf("export changed during update")
+	}
+	return root.Rename(temporaryName, name)
 }
 
 // saveSyscArt writes plain-text art for sysc-walls or sysc-terminal; for sysc-walls it
@@ -297,10 +497,15 @@ func saveSyscArt(input string, format exportFormat, art string) (path, backup, c
 	if err != nil {
 		return "", "", "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	root, rel, err := openSyscArtRoot(path)
+	if err != nil {
 		return "", "", "", err
 	}
-	if path, backup, err = writeExportFile(path, format, content); err != nil || format != exportSyscWalls {
+	defer root.Close()
+	if err := root.MkdirAll(filepath.Dir(rel), 0o700); err != nil {
+		return "", "", "", err
+	}
+	if path, backup, err = writeExportFileAt(root, rel, content); err != nil || format != exportSyscWalls {
 		return path, backup, "", err
 	}
 	home, _ := os.UserHomeDir()
